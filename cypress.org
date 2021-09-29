@@ -12,8 +12,8 @@
 #+begin_src clojure :tangle ./deps.edn
 {:deps 
  {org.clojure/clojure {:mvn/version "1.10.3"}
-  io.github.adam-james-v/svg-clj {:git/sha "4763570b8e96c00ddb368e389ac76755dcb42734"}
-  hiccup/hiccup {:mvn/version "2.0.0-alpha2"}}}
+  svg-clj/svg-clj {:local/root "/Users/adam/dev/svg-clj"}
+  #_#_io.github.adam-james-v/svg-clj {:git/sha "4763570b8e96c00ddb368e389ac76755dcb42734"}}}
 
 #+end_src
 
@@ -47,8 +47,12 @@ A collection of generative art functions and ideas.
             [svg-clj.layout :as lo]
             [svg-clj.parametric :as p]
             [svg-clj.utils :as utils]
-            [svg-clj.tools :as tools]
-            [hiccup.core :refer [html]]))
+            [svg-clj.tools :as tools]))
+
+#+end_src
+
+#+begin_src clojure
+(load-file "src/cypress/main.cljc")
 
 #+end_src
 
@@ -60,27 +64,44 @@ A collection of generative art functions and ideas.
 
 #+end_src
 
-** styles
+** colours
+Trying to randomly generate colors with decent contrast. Using the formulas and cutoffs from [[https://www.had2know.com/technology/color-contrast-calculator-web-design.html]].
+
 #+begin_src clojure :tangle ./src/cypress/main.cljc
-(def a-style {:fill "none"
-              :stroke "#d8dee9"
-              :opacity 0.8
-              :stroke-width 1.5
-              :stroke-linejoin "round"
-              :stroke-linecap "round"})
+(defn rcol
+  []
+  (let [r (- 255 (rand-int 200))
+        g (- 255 (rand-int 200))
+        b (- 255 (rand-int 200))]
+    {:r r :g g :b b
+     :css (str "rgb(" r "," g "," b ")")}))
 
-(def b-style {:fill "#e5e9f0"
-              :stroke "#81a1c1"
-              :opacity 0.125
-              :stroke-width 1.5
-              :stroke-linejoin "round"
-              :stroke-linecap "round"})
+(defn- brightness-idx
+  [{:keys [r g b]}]
+  (/ (+ (* r 299) (* g 587) (* b 114)) 1000))
 
-(def c-style {:fill "none"
-              :stroke "#81a1c1"
-              :stroke-width 2.5
-              :stroke-linejoin "round"
-              :stroke-linecap "round"})
+(defn brightness-diff
+  [cola colb]
+  (apply - (reverse (sort (map brightness-idx [cola colb])))))
+
+(defn hue-diff
+  [cola colb]
+  (let [dr (apply - (reverse (sort [(:r cola) (:r colb)])))
+        dg (apply - (reverse (sort [(:g cola) (:g colb)])))
+        db (apply - (reverse (sort [(:b cola) (:b colb)])))]
+    (+ dr dg db)))
+
+(defn contrast-score
+  [cola colb]
+  (let [brightness-diff (brightness-diff cola colb)
+        hue-diff (hue-diff cola colb)]
+    (+ (- 500 hue-diff) (- 125 brightness-diff))))
+
+(defn random-cols
+  [n]
+  (let [cols (repeatedly (* 3 n) rcol)
+        cola (first (shuffle cols))]
+    (take n (reverse (sort-by #(contrast-score cola %) cols)))))
 
 #+end_src
 
@@ -165,23 +186,113 @@ Make lines look somewhat handdrawn
 
 #+end_src
 
-** hull-check
+** triangulate
 #+begin_src clojure :tangle ./src/cypress/main.cljc
-(defn hull-check []
-  (let [pts (random-pts 240 350 50)
-        hull (map :pt (hull pts))
-        ptf #(-> (el/circle 2)
-                 (tf/translate %)
-                 (tf/style {:fill "red"}))]
-    (el/g
-     (-> hull
-         sketch-polygon
-         (tf/style a-style))
-     (apply el/g (map ptf pts))
-     (-> (el/line (first hull) (utils/v+ [0 51] (first hull)))
-         (tf/style {:stroke "pink"}))
-     (-> (el/circle 3) (tf/translate (first hull)) (tf/style {:fill "green"}))
-     (-> (el/circle 3) (tf/translate (second hull)) (tf/style {:fill "blue"})))))
+(def abs #?(:clj #(Math/abs %)  :cljs js/Math.abs))
+(def pow #?(:clj #(Math/pow %1 %2) :cljs js/Math.pow))
+
+;; https://gist.github.com/mutoo/5617691
+(defn circumscribe-tri
+  [[[ax ay] [bx by] [cx cy]]]
+  (let [A (- bx ax)
+        B (- by ay)
+        C (- cx ax)
+        D (- cy ay)
+        E (+ (* A (+ ax bx)) (* B (+ ay by)))
+        F (+ (* C (+ ax cx)) (* D (+ ay cy)))
+        G (* 2 (- (* A (- cy by)) (* B (- cx bx))))]
+    (when (> (abs G) 0.000001)
+      (let [cx (/ (- (* D E) (* B F)) G)
+            cy (/ (- (* A F) (* C E)) G)
+            dx (- cx ax)
+            dy (- cy ay)
+            r  (+ (pow dx 2) (pow dy 2))]
+        {:x cx :y cy :radius-squared r}))))
+
+(defn edges [pts]
+  (partition 2 1 (conj (vec pts) (first pts))))
+
+(defn contains-pt?
+  [{:keys [x y radius-squared]} [px py]]
+  (let [distance-squared (+ (pow (- x px) 2) (pow (- y py) 2))]
+    (< distance-squared radius-squared)))
+
+(defn outer-edges
+  [tris]
+  (let [all-edges (mapcat edges tris)
+        matches (fn [edge] (filter #{edge (reverse edge)} all-edges))
+        appears-once (fn [edge] (= (count (matches edge)) 1))]
+    (filter appears-once all-edges)))
+
+(defn make-new-tris
+  [containers pt]
+  (->> containers
+       outer-edges
+       (map (fn [[p1 p2]] [p1 p2 pt]))
+       set))
+
+(defn add-pt-to-tris
+  [tris pt]
+  (let [containers (filter #(contains-pt? (circumscribe-tri %) pt) tris)
+        new-tris (make-new-tris containers pt)]
+    (set/union (set/difference tris containers) new-tris)))
+
+;; http://paulbourke.net/papers/triangulate/
+(defn triangulate
+  [pts]
+  (let [pts (map (fn [[x y]] [(float x) (float y)]) pts)
+        [bl br tr tl] (map #(utils/v* % [2 2]) (utils/bounds-of-pts pts))
+        initial #{[tl tr bl] [bl tr br]}
+        with-bounds (reduce add-pt-to-tris initial pts)
+        tris (remove #(some #{tl tr bl br} %) with-bounds)]
+    {:pts pts
+     :tris tris
+     #_#_:edges (distinct (mapcat edges tris))}))
+
+#+end_src
+
+** cut-away-tris
+Cut triangles away which are outside the given polygon.
+
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+(defn- edge-to-right?
+  [pt edge]
+  (let [[px _] pt
+        [w _] (tf/bb-dims (el/polyline (conj edge pt)))
+        [[ax ay] [bx by]] edge
+        [ix iy] (utils/line-intersection [pt (utils/v+ pt [(* 30 w) 0])] edge)]
+    (when ix
+      (and (<= (min ax bx) ix (max ax bx))
+           (<= (min ay by) iy (max ay by))
+           (<= px ix)))))
+
+(defn- edge-strictly-to-right?
+  [pt edge]
+  (let [[px _] pt
+        [w _] (tf/bb-dims (el/polyline (conj edge pt)))
+        [[ax ay] [bx by]] edge
+        [ix iy] (utils/line-intersection [pt (utils/v+ pt [(* 30 w) 0])] edge)]
+    (when ix
+      (and (< (min ax bx) ix (max ax bx))
+           (< (min ay by) iy (max ay by))
+           (< px ix)))))
+
+(defn pt-strictly-inside?
+  [pt poly-pts]
+  (let [[x y] pt
+        edges (edges poly-pts)]
+    (odd? (count (filter #(edge-strictly-to-right? pt %) edges)))))
+
+(defn pt-inside?
+  [pt poly-pts]
+  (let [[x y] pt
+        edges (edges poly-pts)]
+    (odd? (count (filter #(edge-to-right? pt %) edges)))))
+
+(defn cut-away-tris
+  [{:keys [tris] :as data} boundary-pts]
+  (let [tri-inside? #(pt-inside? (utils/centroid-of-pts %) boundary-pts)]
+    (assoc data :tris (vec (filter tri-inside? tris)))))
 
 #+end_src
 
@@ -219,6 +330,21 @@ Make lines look somewhat handdrawn
 
 ** tri-quad-fills
 #+begin_src clojure :tangle ./src/cypress/main.cljc
+(defn dots
+  [pts n]
+  (let [n (* 2 n)
+        dr 0.5
+        [corner _ _ _] (utils/bounds-of-pts pts)
+        spacing (/ (apply max (utils/bb-dims pts)) (float n))
+        dotf (fn [pt]
+               (->> (p/regular-polygon-pts (+ 0.5 (- (rand (* 2 dr)) dr)) 5)
+                    (map #(utils/v- pt %))))
+        dot-positions (->> (p/rect-grid (* 2 n) (* 2 n) spacing spacing)
+                           (map #(utils/v- % [(* 2 spacing) (* 2 spacing)]))
+                           (map #(utils/v+ % corner))
+                           (filter #(pt-strictly-inside? % pts)))]
+    (map dotf dot-positions)))
+
 (defn fence-lines
   [pts n]
   (let [dr 0.0125
@@ -281,123 +407,19 @@ Make lines look somewhat handdrawn
 
 ** fill-strategies
 #+begin_src clojure :tangle ./src/cypress/main.cljc
-(def tri-fill-strategies [no-fill
+(def tri-fill-strategies [dots
                           no-fill
                           converging-lines
-                          converging-lines
-                          fence-lines
                           fence-lines
                           hatch-lines
-                          hatch-lines
                           linerider-lines
-                          linerider-lines
-                          inset-lines
                           inset-lines])
 
-(def quad-fill-strategies [no-fill
+(def quad-fill-strategies [dots
+                           no-fill
                            fence-lines
                            hatch-lines
                            inset-lines])
-
-#+end_src
-
-** fill-checks
-#+begin_src clojure :tangle ./src/cypress/main.cljc
-(defn tri-fill-check []
-  (let [tri [[0 0] [200 -20] [30 150]]
-        f (get tri-fill-strategies (rand-int (count tri-fill-strategies)))
-        lines (f tri (+ 9 (rand-int 7)))
-        f (fn [pts]
-            (let [sk (if (< 2 (count pts))
-                       sketch-polygon
-                       #(apply sketch-line %))]
-              (-> pts sk (tf/style a-style))))]
-    (el/g
-     (apply el/g (map f lines))
-     (-> tri
-         sketch-polygon
-         (tf/style a-style)
-         (tf/style {:stroke "blue"})))))
-
-(defn quad-fill-check []
-  (let [quad [[0 0] [200 -20] [190 190] [90 30]]
-        f (get quad-fill-strategies (rand-int (count quad-fill-strategies)))
-        lines (f quad (+ 9 (rand-int 7)))
-        f (fn [pts]
-            (let [sk (if (< 2 (count pts))
-                       sketch-polygon
-                       #(apply sketch-line %))]
-              (-> pts sk (tf/style a-style))))]
-    (el/g
-     (apply el/g (map f lines))
-     (-> quad
-         sketch-polygon
-         (tf/style a-style)
-         (tf/style {:stroke "blue"})))))
-
-#+end_src
-
-** triangulate
-#+begin_src clojure :tangle ./src/cypress/main.cljc
-(def abs #?(:clj #(Math/abs %)  :cljs js/Math.abs))
-(def pow #?(:clj #(Math/pow %1 %2) :cljs js/Math.pow))
-
-;; https://gist.github.com/mutoo/5617691
-(defn circumscribe-tri
-  [[[ax ay] [bx by] [cx cy]]]
-  (let [A (- bx ax)
-        B (- by ay)
-        C (- cx ax)
-        D (- cy ay)
-        E (+ (* A (+ ax bx)) (* B (+ ay by)))
-        F (+ (* C (+ ax cx)) (* D (+ ay cy)))
-        G (* 2 (- (* A (- cy by)) (* B (- cx bx))))]
-    (when (> (abs G) 0.000001)
-      (let [cx (/ (- (* D E) (* B F)) G)
-            cy (/ (- (* A F) (* C E)) G)
-            dx (- cx ax)
-            dy (- cy ay)
-            r  (+ (pow dx 2) (pow dy 2))]
-        {:x cx :y cy :radius-squared r}))))
-
-(defn edges [[p1 p2 p3]] [[p1 p2] [p2 p3] [p3 p1]])
-
-(defn contains-pt?
-  [{:keys [x y radius-squared]} [px py]]
-  (let [distance-squared (+ (pow (- x px) 2) (pow (- y py) 2))]
-    (< distance-squared radius-squared)))
-
-(defn outer-edges
-  [tris]
-  (let [all-edges (mapcat edges tris)
-        matches (fn [edge] (filter #{edge (reverse edge)} all-edges))
-        appears-once (fn [edge] (= (count (matches edge)) 1))]
-    (filter appears-once all-edges)))
-
-(defn make-new-tris
-  [containers pt]
-  (->> containers
-       outer-edges
-       (map (fn [[p1 p2]] [p1 p2 pt]))
-       set))
-
-(defn add-pt-to-tris
-  [tris pt]
-  (let [containers (filter #(contains-pt? (circumscribe-tri %) pt) tris)
-        new-tris (make-new-tris containers pt)]
-    (set/union (set/difference tris containers) new-tris)))
-
-;; http://paulbourke.net/papers/triangulate/
-(defn triangulate
-  [pts]
-  (let [pts (map (fn [[x y]] [(float x) (float y)]) pts)
-        [bl br tr tl] (map #(utils/v* % [2 2]) (utils/bounds-of-pts pts))
-        initial #{[tl tr bl] [bl tr br]}
-        with-bounds (reduce add-pt-to-tris initial pts)
-        tris (remove #(some #{tl tr bl br} %) with-bounds)]
-    {:pts pts
-     :tris tris
-     :edges (distinct (mapcat edges tris))}))
 
 #+end_src
 
@@ -441,19 +463,318 @@ The logic of join-tris:
        first))
 
 (defn randomly-glue-tris
-  ([tris n]
-   (randomly-glue-tris [] tris n))
-  ([quads tris n]
+  ([{:keys [tris] :as data} n]
+   (randomly-glue-tris [] tris n data))
+  ([quads tris n data]
    (if (or (empty? tris) (= n (count quads)))
-       {:quads quads
-        :tris tris}
+       (merge data
+              {:quads (vec quads)
+               :tris tris})
      (let [tria (first (shuffle tris))
            trib (get-random-neighbour tria tris)
            quad (join-tris tria trib)]
-       (recur (concat quads quad) (vec (remove #{tria trib} tris)) n)))))
+       (recur (concat quads quad) (vec (remove #{tria trib} tris)) n data)))))
 
 #+end_src
 
+** nice-stroke
+
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+(defn ease-in-sin
+  [t]
+  (- 1 (Math/cos (/ (* Math/PI t) 2))))
+
+(defn ease-out-sin
+  [t]
+  (Math/sin (/ (* Math/PI t) 2)))
+
+(defn stroke-pts
+  [curve width n-segments]
+  (let [tlns (->> (el/line [0 0] [0 (* 0.5 width)])
+                  (repeat (inc n-segments))
+                  (#(lo/distribute-on-curve % curve))
+                  (map pline))
+        blns (->> (el/line [0 0] [0 (* -0.5 width)])
+                  (repeat n-segments)
+                  (#(lo/distribute-on-curve % curve))
+                  (map pline))]
+    (concat [(curve 0)]
+            (map #(%1 0) tlns)
+            [(curve 1)]
+            (reverse (map #(%1 0) blns)))))
+
+(defn tapered-stroke-pts
+  [curve width n-segments taper-t]
+  (let [taper-n (int (* n-segments taper-t))
+        taper (map #(ease-out-sin (/ % taper-n)) (range taper-n))
+        dist (concat taper (repeat (- n-segments (* 2 (count taper))) 1) (reverse taper))
+        tlns (->> (el/line [0 0] [0 (* 0.5 width)])
+                  (repeat (inc n-segments))
+                  (#(lo/distribute-on-curve % curve))
+                  (map pline))
+        blns (->> (el/line [0 0] [0 (* -0.5 width)])
+                  (repeat n-segments)
+                  (#(lo/distribute-on-curve % curve))
+                  (map pline))]
+    (concat [(curve 0)]
+            (map #(%1 (* 1 (- 1 %2))) tlns dist)
+            [(curve 1)]
+            (reverse (map #(%1 (* 1 (- 1 %2))) blns dist)))))
+
+#+end_src
+
+* check-fns
+** hull-check
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+(defn hull-check []
+  (let [pts (random-pts 240 350 50)
+        hull (map :pt (hull pts))
+        ptf #(-> (el/circle 2)
+                 (tf/translate %)
+                 (tf/style {:fill "red"}))]
+    (el/g
+     (-> hull
+         sketch-polygon
+         (tf/style a-style))
+     (apply el/g (map ptf pts))
+     (-> (el/line (first hull) (utils/v+ [0 51] (first hull)))
+         (tf/style {:stroke "pink"}))
+     (-> (el/circle 3) (tf/translate (first hull)) (tf/style {:fill "green"}))
+     (-> (el/circle 3) (tf/translate (second hull)) (tf/style {:fill "blue"})))))
+
+#+end_src
+
+** fill-checks
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+(defn tri-fill-check []
+  (let [tri [[0 0] [200 -20] [30 150]]
+        f (get tri-fill-strategies (rand-int (count tri-fill-strategies)))
+        lines (f tri (+ 9 (rand-int 7)))
+        f (fn [pts]
+            (let [sk (if (< 2 (count pts))
+                       sketch-polygon
+                       #(apply sketch-line %))]
+              (-> pts sk (tf/style a-style))))]
+    (el/g
+     (apply el/g (map f lines))
+     (-> tri
+         sketch-polygon
+         (tf/style a-style)
+         (tf/style {:stroke "blue"})))))
+
+(defn quad-fill-check []
+  (let [quad [[0 0] [200 -20] [190 190] [90 120]]
+        f (get quad-fill-strategies (rand-int (count quad-fill-strategies)))
+        lines (f quad (+ 9 (rand-int 7)))
+        f (fn [pts]
+            (let [sk (if (< 2 (count pts))
+                       sketch-polygon
+                       #(apply sketch-line %))]
+              (-> pts sk (tf/style a-style))))]
+    (el/g
+     (apply el/g (map f lines))
+     (-> quad
+         sketch-polygon
+         (tf/style a-style)
+         (tf/style {:stroke "blue"})))))
+
+#+end_src
+
+* generator-pipeline
+There's a better way to build the generator that separates out various steps, allowing you to save 'steps' if you like one aspect of a result but not another. I want to separate the steps as follows:
+
+ 1. generate pts
+ 2. calculate mesh
+ 3. randomly select fill strategies for each tri/quad
+ 4. randomly select line styles for tris/quads
+ 5. randomly select fill styles for tris/quads
+
+** gen-pts
+Random points works well, but here are some more artistic options for rendering point sets.
+
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+(defn tapered-bezier-pts
+  [w h lt]
+  (let [[wh hh] (map #(/ % 2.0) [w h])]
+    (tapered-stroke-pts
+     (p/bezier
+      [[0 (- hh)]
+       [(* (rand) (* w -1)) (* (rand) (* hh -1))]
+       [(* (rand) (* w 1)) (* (rand) (* hh 1))] 
+       [0 hh]]) lt 16 0.5)))
+
+(defn regular-poly-sets-pts
+  [rmax n-rings n-max]
+  (let [ns (reverse (range 1 (inc n-rings)))
+        rs (map #(* rmax (/ % n-rings)) ns)
+        segs (map #(max (int (* n-max (/ % n-rings))) 3) ns)]
+  (mapcat #(p/regular-polygon-pts %1 %2) rs segs)))
+
+#+end_src
+
+** gen-mesh
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+;; 2. generate mesh from pts
+(defn gen-mesh
+  [pts {:keys [quads-n concave]}]
+  (let [data (-> pts triangulate (assoc :hull (mapv :pt (hull pts))))]
+    (cond-> data
+      concave (cut-away-tris pts)
+      quads-n (randomly-glue-tris quads-n))))
+
+#+end_src
+
+** gen-fills
+Fills are the line patterns created by the previously defined fill strategies.
+
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+;; 3. create fills for tris and quads
+(defn- fill-tris
+  [{:keys [tris] :as data}]
+  (let [f (fn [tri]
+            (let [fillfn (first (shuffle tri-fill-strategies))]
+              (fillfn tri (+ 4 (rand-int 6)))))]
+    (assoc data :tri-fills (mapv f tris))))
+
+(defn- fill-quads
+  [{:keys [quads] :as data}]
+  (let [f (fn [quad]
+            (let [fillfn (first (shuffle quad-fill-strategies))]
+              (fillfn quad (+ 4 (rand-int 6)))))]
+    (assoc data :quad-fills (mapv f quads))))
+
+(defn gen-fills
+  [data opts]
+  (-> data
+      fill-tris
+      fill-quads))
+
+#+end_src
+
+** gen-colours
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+(defn gen-cols
+  [data opts]
+  (let [cols (random-cols 32)]
+    (-> data
+        (assoc :cols {:fg (first cols)
+                      :bg (last cols)
+                      :hl (nth cols 4)}))))
+
+(defn- render-fill
+  [fill-data {:keys [fg]}]
+  (let [f (fn [pts]
+            (if (= 2 (count pts))
+              (apply el/line pts)
+              (el/polygon pts)))]
+    (map #(-> (f %)
+              (tf/style {:fill "none"
+                         :stroke (:css fg)
+                         :stroke-width 1.5}))
+         fill-data)))
+
+(defn gen-render
+  [{:keys [tri-fills tris
+           quad-fills quads
+           cols
+           hull] :as data}
+   {:keys [bg]}]
+  (let [hull-poly (el/polygon hull)
+        ctr (utils/centroid-of-pts (tf/bounds hull-poly))
+        pad 50
+        [w h] (map #(+ (* 2 pad) %) (tf/bb-dims hull-poly))
+        outline {:fill "none" :stroke (:css (:fg cols)) :stroke-width 1.5}]
+    (assoc data :render
+           (el/g
+            ;; bg
+            (when bg
+              (-> (el/rect w h)
+                  (tf/translate ctr)
+                  (tf/style {:fill (:css (:bg cols))})))
+            ;; tris
+            (when-not (empty? tris)
+              (concat
+                (map #(-> (el/polygon %) (tf/style outline)) tris)
+                (map #(render-fill % cols) tri-fills)))
+            ;; quads
+            (when-not (empty? quads)
+              (concat
+                (map #(-> (el/polygon %) (tf/style outline)) quads)
+                (map #(render-fill % cols) quad-fills)))))))
+
+#+end_src
+
+** gen-data
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+(defn gen-data
+  [pts opts]
+  (-> pts
+      (gen-mesh opts)
+      (gen-fills opts)
+      (gen-cols opts)
+      (gen-render opts)))
+
+#+end_src
+
+** grid
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+(defn squared-grid
+  [nx ny]
+  (let [[hnx hny] (map #(int (/ % 2)) [nx ny])
+        xs (map #(double (/ % hnx)) (range 0 (inc hnx)))
+        xs (concat xs (rest (reverse xs)))
+        ys (map #(double (/ % hny)) (range 0 (inc hny)))
+        ys (concat ys (rest (reverse ys)))]
+    (for [x xs y ys] (* x y))))
+
+(def asdf
+  (let [min-r 0.1
+        max-r 20
+        n 7
+        grid (p/rect-grid n n 50 50)
+        gf (squared-grid n n)
+        ctr (utils/centroid-of-pts grid)
+        xf-grid (map #((p/line %1 ctr) (* 0.5 (- 1 %2))) grid gf)]
+  (lo/distribute-on-pts
+   (map #(-> (el/circle (+ min-r (* max-r %)))) gf)
+   xf-grid)))
+
+(defn art-grid
+  []
+  (let [opts {:quads-n 4}
+        n 7
+        grid (p/rect-grid n n 320 320)
+        gf (squared-grid n n)
+        ctr (utils/centroid-of-pts grid)
+        xf-grid (map #((p/line %1 ctr) (* 0.4 (- 1 %2))) grid gf)
+        tmp (remove #(< (:gf %) 0.00001)
+                    (map (fn [gf grid] {:gf gf :grid grid})
+                         gf xf-grid))
+        gf (map :gf tmp)
+        xf-grid (map :grid tmp)
+        shapes (map #(->
+                      (random-pts (+ 70 (* 210 %))
+                                  (+ 70 (* 210 %))
+                                  (+ 7 (int (* 18 %))))
+                      (gen-data opts))
+                    gf)
+        cols (:cols (first shapes))
+        shapes (map #(-> %
+                         (assoc :cols cols)
+                         (gen-render opts))
+                    shapes)
+        res (lo/distribute-on-pts (map :render shapes) xf-grid)
+        pad 200
+        [w h] (map #(+ (* 2 pad) %) (tf/bb-dims res))]
+    (el/g
+     (-> (el/rect w h)
+         (tf/translate ctr)
+         (tf/style {:fill (:css (:bg cols))}))
+     res)))
+
+#+end_src
+
+* ideas
 ** art-gen
 *** setup
 #+begin_src clojure :tangle ./src/cypress/main.cljc
@@ -552,9 +873,9 @@ The logic of join-tris:
 
 (defn gen-art2
   [r n]
-  (let [focus [0 0]
+  (let [focus [0 0] #_[(rand-int (* r 0.875)) (* r 0.875)]
         segs 9
-        pts #_(random-pts 500 700 20) (conj (p/regular-polygon-pts r n) focus)
+        pts #_(random-pts 400 500 20) (conj (p/regular-polygon-pts r n) focus)
         tris (->> pts
                   triangulate
                   :tris
@@ -565,7 +886,8 @@ The logic of join-tris:
         trif #(-> % sketch-polygon (tf/style a-style))]
     (el/g
      (apply el/g (map #(fill-tri2 % segs) tris))
-     #_(-> hull sketch-polygon (tf/style c-style)))))
+     #_(-> hull el/polygon
+         (tf/style thin-line-style)))))
 
 #+end_src
 
@@ -579,12 +901,16 @@ The logic of join-tris:
         quads (:quads mesh)
         tris (:tris mesh)
         hull (map :pt (hull pts))
-        trif #(-> % sketch-polygon (tf/style line-style))
-        quadf #(-> % sketch-polygon (tf/style line-style))
-        trifb #(-> % sketch-polygon (tf/style (merge fg-style {:opacity 0.5})))
+        trif #(-> % sketch-polygon
+                  (tf/style line-style))
+        quadf #(-> % sketch-polygon
+                   (tf/style line-style))
+        trifb #(-> % sketch-polygon
+                   (tf/style (merge fg-style {:opacity 0.5})))
         [_ trihl] (split-at (* 0.25 (count tris)) (vec (shuffle tris)))]
     (el/g
-     (when bg? (-> (el/rect (* 1.25 w) (* 1.25 h)) (tf/style bg-style)))
+     (when bg? (-> (el/rect (* 1.25 w) (* 1.25 h))
+                   (tf/style bg-style)))
      ;; fill some triangles
      (apply el/g (map trifb trihl))
  
@@ -596,21 +922,10 @@ The logic of join-tris:
      (apply el/g (map fill-tri tris))
      (apply el/g (map trif tris))
 
-     ;; hull
-     (-> hull sketch-polygon (tf/style line-style)))))
+     ;; hull-line
+     (-> hull sketch-polygon
+         (tf/style line-style)))))
 
-(spit "gen-art3.svg" (html (gen-art3 500 700 24 true)))
-
-#+end_src
-
-** art-grid
-#+begin_src clojure :tangle ./src/cypress/main.cljc
-(defn gen-grid3
-  []
-  (let [results
-        #_(map #(gen-art2 80 %) (range 3 20))
-        (repeatedly 9 #(gen-art3 220 220 16 false))
-        grid (map #(vec (reverse %)) (p/rect-grid 3 3 230 230))]
-    (lo/distribute-on-pts results grid)))
+#_(tools/save-svg "gen-art3.svg" (svg-clj.composites/svg (gen-art3 500 700 24 true)))
 
 #+end_src
