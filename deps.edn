@@ -1,4 +1,5 @@
 {:deps 
  {org.clojure/clojure {:mvn/version "1.10.3"}
-  svg-clj/svg-clj {:local/root "/Users/adam/dev/svg-clj"}
-  #_#_io.github.adam-james-v/svg-clj {:git/sha "4763570b8e96c00ddb368e389ac76755dcb42734"}}}
+  org.clojure/tools.cli {:mvn/version "1.0.206"}
+  #_#_svg-clj/svg-clj {:local/root "/Users/adam/dev/svg-clj"}
+  io.github.adam-james-v/svg-clj {:mvn/version "0.0.3-SNAPSHOT"}}}

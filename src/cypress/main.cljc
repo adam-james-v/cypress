@@ -72,10 +72,6 @@
     (-> (concat [a] pts [b])
         (el/polyline))))
 
-(def sketch-line-ex
-  (-> (sketch-line [0 0] [200 100])
-      (tf/style a-style)))
-
 (defn sketch-polygon
   [pts]
   (let [pts (concat pts [(first pts)])
@@ -97,9 +93,12 @@
   ([pts]
    (hull [{:pt (first (sort-by first pts))}] pts))
   ([acc pts]
-   (if (or (= (count acc) (count pts))
-           (and (< 1 (count acc))
-                (= (:pt (first acc)) (:pt (last acc)))))
+   (if (or
+        ;; stop the process if acc grows larger than the pts count
+        (> (count acc) (count pts))
+        ;; *should* always end where the last added point closes the poly
+        (and (< 1 (count acc))
+             (= (:pt (first acc)) (:pt (last acc)))))
      (drop-last acc)
      (let [prev (:pt (last acc))
            dir (if (= 1 (count acc))
@@ -411,7 +410,7 @@
     (el/g
      (-> hull
          sketch-polygon
-         (tf/style a-style))
+         (tf/style {:fill "none" :stroke "skyblue"}))
      (apply el/g (map ptf pts))
      (-> (el/line (first hull) (utils/v+ [0 51] (first hull)))
          (tf/style {:stroke "pink"}))
@@ -426,12 +425,12 @@
             (let [sk (if (< 2 (count pts))
                        sketch-polygon
                        #(apply sketch-line %))]
-              (-> pts sk (tf/style a-style))))]
+              (-> pts sk (tf/style {:fill "none" :stroke "white"}))))]
     (el/g
      (apply el/g (map f lines))
      (-> tri
          sketch-polygon
-         (tf/style a-style)
+         (tf/style {:fill "none" :stroke "skyblue"})
          (tf/style {:stroke "blue"})))))
 
 (defn quad-fill-check []
@@ -442,12 +441,12 @@
             (let [sk (if (< 2 (count pts))
                        sketch-polygon
                        #(apply sketch-line %))]
-              (-> pts sk (tf/style a-style))))]
+              (-> pts sk (tf/style {:fill "none" :stroke "skyblue"}))))]
     (el/g
      (apply el/g (map f lines))
      (-> quad
          sketch-polygon
-         (tf/style a-style)
+         (tf/style {:fill "none" :stroke "skyblue"})
          (tf/style {:stroke "blue"})))))
 
 (defn tapered-bezier-pts
@@ -704,7 +703,7 @@
                   (sort-by #(tri-polar-angle % focus))
                   (map #(shift % 2)))
         hull (map :pt (hull pts))
-        trif #(-> % sketch-polygon (tf/style a-style))]
+        trif #(-> % sketch-polygon (tf/style {:fill "none" :stroke "skyblue"}))]
     (el/g
      (apply el/g (map #(fill-tri2 % segs) tris))
      #_(-> hull el/polygon

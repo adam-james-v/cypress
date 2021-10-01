@@ -12,8 +12,9 @@
 #+begin_src clojure :tangle ./deps.edn
 {:deps 
  {org.clojure/clojure {:mvn/version "1.10.3"}
-  svg-clj/svg-clj {:local/root "/Users/adam/dev/svg-clj"}
-  #_#_io.github.adam-james-v/svg-clj {:git/sha "4763570b8e96c00ddb368e389ac76755dcb42734"}}}
+  org.clojure/tools.cli {:mvn/version "1.0.206"}
+  #_#_svg-clj/svg-clj {:local/root "/Users/adam/dev/svg-clj"}
+  io.github.adam-james-v/svg-clj {:mvn/version "0.0.3-SNAPSHOT"}}}
 
 #+end_src
 
@@ -31,6 +32,11 @@ Open experimenting. I want to turn different generative ideas into scripts and/o
 
 
 #+END_SRC
+
+* design
+This library is a 'scratch' library where I experiment with different generative art ideas. As such, the design is fairly loose: functions and ideas in a main namespace, separating things to other namespaces as ideas solidify. I will also make separate .org files to build interactive blog posts from each separable idea.
+
+The long-term goal is to make a robust collection of scripts and sites which are their own art pieces, which people may feel inclined to use for printing purposes. I want to add donation links to the web versions of each page too, but money isn't the main goal, creativity and aesthetics are the goals.
 
 * cypress-main
 A collection of generative art functions and ideas.
@@ -132,10 +138,6 @@ Make lines look somewhat handdrawn
     (-> (concat [a] pts [b])
         (el/polyline))))
 
-(def sketch-line-ex
-  (-> (sketch-line [0 0] [200 100])
-      (tf/style a-style)))
-
 (defn sketch-polygon
   [pts]
   (let [pts (concat pts [(first pts)])
@@ -167,9 +169,12 @@ Make lines look somewhat handdrawn
   ([pts]
    (hull [{:pt (first (sort-by first pts))}] pts))
   ([acc pts]
-   (if (or (= (count acc) (count pts))
-           (and (< 1 (count acc))
-                (= (:pt (first acc)) (:pt (last acc)))))
+   (if (or
+        ;; stop the process if acc grows larger than the pts count
+        (> (count acc) (count pts))
+        ;; *should* always end where the last added point closes the poly
+        (and (< 1 (count acc))
+             (= (:pt (first acc)) (:pt (last acc)))))
      (drop-last acc)
      (let [prev (:pt (last acc))
            dir (if (= 1 (count acc))
@@ -535,7 +540,7 @@ The logic of join-tris:
     (el/g
      (-> hull
          sketch-polygon
-         (tf/style a-style))
+         (tf/style {:fill "none" :stroke "skyblue"}))
      (apply el/g (map ptf pts))
      (-> (el/line (first hull) (utils/v+ [0 51] (first hull)))
          (tf/style {:stroke "pink"}))
@@ -554,12 +559,12 @@ The logic of join-tris:
             (let [sk (if (< 2 (count pts))
                        sketch-polygon
                        #(apply sketch-line %))]
-              (-> pts sk (tf/style a-style))))]
+              (-> pts sk (tf/style {:fill "none" :stroke "white"}))))]
     (el/g
      (apply el/g (map f lines))
      (-> tri
          sketch-polygon
-         (tf/style a-style)
+         (tf/style {:fill "none" :stroke "skyblue"})
          (tf/style {:stroke "blue"})))))
 
 (defn quad-fill-check []
@@ -570,12 +575,12 @@ The logic of join-tris:
             (let [sk (if (< 2 (count pts))
                        sketch-polygon
                        #(apply sketch-line %))]
-              (-> pts sk (tf/style a-style))))]
+              (-> pts sk (tf/style {:fill "none" :stroke "skyblue"}))))]
     (el/g
      (apply el/g (map f lines))
      (-> quad
          sketch-polygon
-         (tf/style a-style)
+         (tf/style {:fill "none" :stroke "skyblue"})
          (tf/style {:stroke "blue"})))))
 
 #+end_src
@@ -883,7 +888,7 @@ Fills are the line patterns created by the previously defined fill strategies.
                   (sort-by #(tri-polar-angle % focus))
                   (map #(shift % 2)))
         hull (map :pt (hull pts))
-        trif #(-> % sketch-polygon (tf/style a-style))]
+        trif #(-> % sketch-polygon (tf/style {:fill "none" :stroke "skyblue"}))]
     (el/g
      (apply el/g (map #(fill-tri2 % segs) tris))
      #_(-> hull el/polygon
@@ -928,4 +933,39 @@ Fills are the line patterns created by the previously defined fill strategies.
 
 #_(tools/save-svg "gen-art3.svg" (svg-clj.composites/svg (gen-art3 500 700 24 true)))
 
+#+end_src
+
+* cli
+An interface to generate output via command line.
+
+** ns
+#+begin_src clojure :tangle ./cli.clj
+(ns cypress.cli
+  (:require [clojure.string :as str]
+            [clojure.tools.cli :as cli]
+            [svg-clj.composites :refer [svg]]
+            [svg-clj.tools :as tools]
+            [cypress.main :as cyp]))
+
+(def cli-options
+  [["-h" "--help"]
+   ["-o" "--output OUTPUT" "The output path/filename."
+    :default "output.svg"]])
+
+(defn -main
+  [& args]
+  (let [parsed (cli/parse-opts args cli-options)
+        opts (:options parsed)]
+    (cond
+      (:help opts)
+      (println (str "Usage:\n" (:summary parsed)))
+
+      :else
+      (do
+        (println "Running (art-grid) function, saving output to" (:output opts))
+        (-> (cyp/art-grid)
+            svg
+            (tools/save-svg (:output opts)))))))
+
+(apply -main *command-line-args*)
 #+end_src
