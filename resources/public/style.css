@@ -1,0 +1,144 @@
+#root {
+  margin: 0;
+  padding: 0;
+}
+
+*, *:after, *:before {
+  box-sizing: border-box;
+}
+
+body {
+  font: 16px/1.6 Georgia, "Times New Roman", Times, serif;
+  max-width: 500px;
+  background-color: #eee;
+}
+
+.CodeMirror {
+  resize: both;
+  border-radius: 11px 11px 4px 11px;
+  box-shadow: rgba(19, 19, 19, 0.7) 0px 2px 8px 0px;
+  margin: 7px;
+}
+
+table, input {
+  font-size: 16px;
+}
+
+button, select {
+  font-size: 14px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  line-height: 1.2;
+}
+
+text {
+  font-family: monospace;
+  stroke: none;
+}
+
+rect, line, path, polygon, polyline, circle, ellipse, text {
+  vector-effect: non-scaling-stroke;
+}
+
+table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  text-align: left;
+  padding-bottom: 25px;
+  width: auto;
+}
+
+th, td {
+  vertical-align: top;
+  padding: 5px;
+  border: 1px solid #ddd;
+}
+
+table ul {
+  list-style-type: none;
+  padding-left: 4px;
+  margin: 0;
+}
+
+table li:before {
+  content: ▢ ;
+}
+
+table p {
+  margin: 0;
+}
+
+td, th {
+  padding: 5px;
+  vertical-align: bottom;
+}
+
+td, th, hr {
+  border-bottom: 1px solid #ddd;
+}
+
+hr {
+  border: 0;
+  margin: 25px 0;
+}
+
+code.block {
+  border-radius: 11px 11px 11px 11px;
+  box-shadow: rgba(19, 19, 19, 0.7) 0px 2px 8px 0px;
+  margin: 7px;
+  padding: 11px;
+  background: #2e3440;
+  color: #dedee9;
+  white-space: pre-wrap;
+  display: inline-block;
+  width: 100%;
+  max-height: 250px;
+  overflow: auto;
+}
+
+.hidden {
+  display: none;
+}
+
+body {
+  margin: 7px auto;
+  max-width: 100vw;
+  color: #444;
+  padding: 0 15px;
+}
+
+a {
+  color: #07c;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #059;
+  text-decoration: underline;
+}
+
+pre {
+  padding: 7px;
+  white-space: pre-wrap;
+}
+
+button, select {
+  background: #ddd;
+  border: 0;
+  padding: 9px 20px;
+}
+
+input {
+  padding: 3px;
+  vertical-align: bottom;
+}
+
+button:hover {
+  background: #eee;
+}
+
+textarea {
+  border-color: #ccc;
+}

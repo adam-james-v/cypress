@@ -12,11 +12,32 @@
 #+begin_src clojure :tangle ./deps.edn
 {:deps 
  {org.clojure/clojure {:mvn/version "1.10.3"}
-  org.clojure/tools.cli {:mvn/version "1.0.206"}
-  #_#_svg-clj/svg-clj {:local/root "/Users/adam/dev/svg-clj"}
-  io.github.adam-james-v/svg-clj {:mvn/version "0.0.3-SNAPSHOT"}}}
+  svg-clj/svg-clj {:local/root "/Users/adam/dev/svg-clj"}
+  #_#_io.github.adam-james-v/svg-clj {:mvn/version "0.0.3-SNAPSHOT"}
+  
+  reagent/reagent              {:mvn/version "1.1.0"}
+  borkdude/sci                 {:mvn/version "0.2.7"}
+  com.bhauman/figwheel-main     {:mvn/version "0.2.14"}}
+
+ :paths
+ ["src" "tests" "resources" "target"]
+
+ :aliases
+ {:cli
+  {:extra-deps
+   {org.clojure/tools.cli {:mvn/version "1.0.206"}}}
+
+  :web
+  {:extra-deps
+   {cljsjs/react {:mvn/version "17.0.2-0"}
+    cljsjs/react-dom {:mvn/version "17.0.2-0"}}}}}
+
 
 #+end_src
+** figwheel
+#+BEGIN_SRC clojure :tangle ./figwheel-main.edn
+{:ring-server-options {:port 9553}}
+#+END_SRC
 
 ** readme
 #+BEGIN_SRC markdown :tangle ./readme.md
@@ -30,7 +51,7 @@ Launch a Clojure REPL and load the project. A better usage situation will evolve
 You can also run the (art-grid) function via a CLI script:
 
 ```sh
-clj -M cli.clj
+clj -A:cli -M cli.clj
 ```
 
 Which will save the result to `output.svg`.
@@ -46,6 +67,180 @@ This library is a 'scratch' library where I experiment with different generative
 
 The long-term goal is to make a robust collection of scripts and sites which are their own art pieces, which people may feel inclined to use for printing purposes. I want to add donation links to the web versions of each page too, but money isn't the main goal, creativity and aesthetics are the goals.
 
+Cypress, the library, exists in its own namespace(s), starting with cypress.core
+
+Cypress, the art collection, exists as a collection of CLJS projets, each of which is an interactive client-side app.
+
+Cypress main will contain the bulk of the art code and utilities, and each sketch will have its own webpage build, pulling in only those namespaces necessarsy for that sketch. Each sketch will have its own Figwheel config, so there will be a lot of .edn config files in the root.
+
+* resources
+*** html
+#+BEGIN_SRC html :tangle ./resources/public/index.html
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Cypress: Generative Art Sketches</title>
+    <link rel="stylesheet" href="codemirror.css">
+    <link rel="stylesheet" href="nord.css">
+    <link rel="stylesheet" type="text/css" href="style.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="/js/codemirror.js" ></script>
+    <script src="/js/clojure.js" ></script>
+    <script src="/cljs-out/dev.js"></script>
+  </body>
+</html>
+#+END_SRC
+
+*** css
+#+BEGIN_SRC css :tangle ./resources/public/style.css
+#root {
+  margin: 0;
+  padding: 0;
+}
+
+,*, *:after, *:before {
+  box-sizing: border-box;
+}
+
+body {
+  font: 16px/1.6 Georgia, "Times New Roman", Times, serif;
+  max-width: 500px;
+  background-color: #eee;
+}
+
+.CodeMirror {
+  resize: both;
+  border-radius: 11px 11px 4px 11px;
+  box-shadow: rgba(19, 19, 19, 0.7) 0px 2px 8px 0px;
+  margin: 7px;
+}
+
+table, input {
+  font-size: 16px;
+}
+
+button, select {
+  font-size: 14px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  line-height: 1.2;
+}
+
+text {
+  font-family: monospace;
+  stroke: none;
+}
+
+rect, line, path, polygon, polyline, circle, ellipse, text {
+  vector-effect: non-scaling-stroke;
+}
+
+table {
+  border-spacing: 0;
+  border-collapse: collapse;
+  text-align: left;
+  padding-bottom: 25px;
+  width: auto;
+}
+
+th, td {
+  vertical-align: top;
+  padding: 5px;
+  border: 1px solid #ddd;
+}
+
+table ul {
+  list-style-type: none;
+  padding-left: 4px;
+  margin: 0;
+}
+
+table li:before {
+  content: ▢ ;
+}
+
+table p {
+  margin: 0;
+}
+
+td, th {
+  padding: 5px;
+  vertical-align: bottom;
+}
+
+td, th, hr {
+  border-bottom: 1px solid #ddd;
+}
+
+hr {
+  border: 0;
+  margin: 25px 0;
+}
+
+code.block {
+  border-radius: 11px 11px 11px 11px;
+  box-shadow: rgba(19, 19, 19, 0.7) 0px 2px 8px 0px;
+  margin: 7px;
+  padding: 11px;
+  background: #2e3440;
+  color: #dedee9;
+  white-space: pre-wrap;
+  display: inline-block;
+  width: 100%;
+  max-height: 250px;
+  overflow: auto;
+}
+
+.hidden {
+  display: none;
+}
+
+body {
+  margin: 7px auto;
+  max-width: 100vw;
+  color: #444;
+  padding: 0 15px;
+}
+
+a {
+  color: #07c;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #059;
+  text-decoration: underline;
+}
+
+pre {
+  padding: 7px;
+  white-space: pre-wrap;
+}
+
+button, select {
+  background: #ddd;
+  border: 0;
+  padding: 9px 20px;
+}
+
+input {
+  padding: 3px;
+  vertical-align: bottom;
+}
+
+button:hover {
+  background: #eee;
+}
+
+textarea {
+  border-color: #ccc;
+}
+#+END_SRC
+
 * cypress-main
 A collection of generative art functions and ideas.
 
@@ -60,13 +255,13 @@ A collection of generative art functions and ideas.
             [svg-clj.transforms :as tf]
             [svg-clj.layout :as lo]
             [svg-clj.parametric :as p]
-            [svg-clj.utils :as utils]
-            [svg-clj.tools :as tools]))
+            [svg-clj.utils :as utils]))
 
 #+end_src
 
 #+begin_src clojure
 (load-file "src/cypress/main.cljc")
+
 
 #+end_src
 
@@ -174,8 +369,7 @@ Make lines look somewhat handdrawn
 
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 (defn hull
-  ([pts]
-   (hull [{:pt (first (sort-by first pts))}] pts))
+  ([pts] (hull [{:pt (first (sort-by first pts))}] pts))
   ([acc pts]
    (if (or
         ;; stop the process if acc grows larger than the pts count
@@ -196,6 +390,15 @@ Make lines look somewhat handdrawn
                        (remove #(nil? (:angle %)))
                        (sort-by #(Math/abs (- (:angle %) 180))))]
        (recur (conj acc (first sorted)) pts)))))
+
+(defn nested-hull
+  ([pts] (nested-hull [] pts))
+  ([acc pts]
+   (if (> 3 (count pts))
+     acc
+     (let [hull (hull pts)
+           npts (remove (set (map :pt hull)) pts)]
+       (recur (conj acc hull) npts)))))
 
 #+end_src
 
@@ -536,8 +739,25 @@ The logic of join-tris:
 
 #+end_src
 
-* check-fns
-** hull-check
+** inflection-points
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+(defn get-inflections
+  [pts]
+  (let [b-pts (reverse pts)
+        a-triples (partition 3 1 (concat [(last pts)] (vec pts) [(first pts)]))
+        b-triples (partition 3 1 (concat [(last b-pts)] (vec b-pts) [(first b-pts)]))
+        a (map second
+               (filter #(< 180 (apply utils/angle-from-pts %)) a-triples))
+        b (map second
+               (filter #(< 180 (apply utils/angle-from-pts %)) b-triples))]
+    (when-not (or (= (count a) (count pts))
+                  (= (count b) (count pts)))
+      (first (sort-by count [a b])))))
+
+#+end_src
+
+** check-fns
+*** hull-check
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 (defn hull-check []
   (let [pts (random-pts 240 350 50)
@@ -557,7 +777,7 @@ The logic of join-tris:
 
 #+end_src
 
-** fill-checks
+*** fill-checks
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 (defn tri-fill-check []
   (let [tri [[0 0] [200 -20] [30 150]]
@@ -593,7 +813,7 @@ The logic of join-tris:
 
 #+end_src
 
-* generator-pipeline
+** generator-pipeline
 There's a better way to build the generator that separates out various steps, allowing you to save 'steps' if you like one aspect of a result but not another. I want to separate the steps as follows:
 
  1. generate pts
@@ -602,7 +822,7 @@ There's a better way to build the generator that separates out various steps, al
  4. randomly select line styles for tris/quads
  5. randomly select fill styles for tris/quads
 
-** gen-pts
+*** gen-pts
 Random points works well, but here are some more artistic options for rendering point sets.
 
 #+begin_src clojure :tangle ./src/cypress/main.cljc
@@ -625,7 +845,7 @@ Random points works well, but here are some more artistic options for rendering 
 
 #+end_src
 
-** gen-mesh
+*** gen-mesh
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 ;; 2. generate mesh from pts
 (defn gen-mesh
@@ -637,7 +857,7 @@ Random points works well, but here are some more artistic options for rendering 
 
 #+end_src
 
-** gen-fills
+*** gen-fills
 Fills are the line patterns created by the previously defined fill strategies.
 
 #+begin_src clojure :tangle ./src/cypress/main.cljc
@@ -664,19 +884,19 @@ Fills are the line patterns created by the previously defined fill strategies.
 
 #+end_src
 
-** gen-colours
+*** gen-colours
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 (defn gen-cols
-  [data opts]
+  [data {:keys [fg bg hl] :as opts}]
   (let [cols (random-cols 32)]
     (-> data
-        (assoc :cols {:fg (first cols)
-                      :bg (last cols)
-                      :hl (nth cols 4)}))))
+        (assoc :cols {:fg (if fg {:css fg} (first cols))
+                      :bg (if bg {:css bg} (last cols))
+                      :hl (if hl {:css hl} (nth cols 4))}))))
 
 #+end_src
 
-** gen-render
+*** gen-render
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 (defn- render-fill
   [fill-data {:keys [fg]}]
@@ -721,7 +941,7 @@ Fills are the line patterns created by the previously defined fill strategies.
 
 #+end_src
 
-** gen-data
+*** gen-data
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 (defn gen-data
   [pts opts]
@@ -733,7 +953,7 @@ Fills are the line patterns created by the previously defined fill strategies.
 
 #+end_src
 
-** grid
+*** grid
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 (defn squared-grid
   [nx ny]
@@ -791,9 +1011,9 @@ Fills are the line patterns created by the previously defined fill strategies.
 
 #+end_src
 
-* ideas
-** art-gen
-*** setup
+** ideas
+*** art-gen
+**** setup
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 (def bg "#455D7A")
 (def lcol "#F95959")
@@ -844,7 +1064,7 @@ Fills are the line patterns created by the previously defined fill strategies.
 
 #+end_src
 
-*** idea-01
+**** idea-01
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 (defn gen-art
   [w h n bg?]
@@ -867,7 +1087,7 @@ Fills are the line patterns created by the previously defined fill strategies.
 
 #+end_src
 
-*** idea-02
+**** idea-02
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 (defn fill-tri2
   [tri n]
@@ -908,7 +1128,7 @@ Fills are the line patterns created by the previously defined fill strategies.
 
 #+end_src
 
-*** idea-03
+**** idea-03
 #+begin_src clojure :tangle ./src/cypress/main.cljc
 (defn gen-art3
   [w h n bg?]
@@ -947,8 +1167,71 @@ Fills are the line patterns created by the previously defined fill strategies.
 
 #+end_src
 
+* fonts
+** ns
+#+begin_src clojure :tangle ./src/cypress/fonts.clj
+(ns cypress.fonts
+  (:require [clojure.string :as str]
+            [clojure.set :as set]
+            [svg-clj.elements :as el]
+            [svg-clj.path :as path]
+            [svg-clj.composites :as c :refer [svg]]
+            [svg-clj.transforms :as tf]
+            [svg-clj.layout :as lo]
+            [svg-clj.parametric :as p]
+            [svg-clj.utils :as utils]
+            [svg-clj.tools :as tools]))
+
+#+end_src
+
+** load-font-glyphs
+#+begin_src clojure :tangle ./src/cypress/fonts.clj
+(def bentham-glyphs (tools/load-svg-elems "bentham-regular.svg" #{:glyph}))
+(def bentham-a (-> bentham-glyphs
+                   (->> (filter #(= "a" (get-in % [1 :unicode]))))
+                   first
+                   (get-in [1 :d])
+                   path/path-str->cmds
+                   path/cmds->path-string
+                   path/path
+                   (tf/scale [1 -1])
+                   path/decurve))
+
+(def bentham-a-outer-pts (-> bentham-a
+                             path/path->elements
+                             first
+                             (get-in [1 :points])
+                             utils/s->v
+                             (->> (partition 2))
+                             distinct
+                             (->> (map vec))))
+
+(def bentham-a-inner-pts (-> bentham-a
+                             path/path->elements
+                             second
+                             (get-in [1 :points])
+                             utils/s->v
+                             (->> (partition 2))
+                             distinct
+                             (->> (map vec))))
+
+(def bentham-a-pts (concat
+                    (mapv first (partition 7 bentham-a-inner-pts))
+                    (mapv first (partition 4 bentham-a-outer-pts))))
+
+(def concave-poly (first (tools/load-svg-elems "drawing.svg" #{:path})))
+(def concave-poly-pts (-> concave-poly
+                          path/path->elements
+                          first
+                          (get-in [1 :points])
+                          utils/s->v
+                          (->> (partition 2))
+                          distinct
+                          (->> (map vec))))
+#+end_src
+
 * cli
-An interface to generate output via command line.
+An interface to generate output via command line. This may be removed later, it's just an idea.
 
 ** ns
 #+begin_src clojure :tangle ./cli.clj
@@ -981,3 +1264,250 @@ An interface to generate output via command line.
 
 (apply -main *command-line-args*)
 #+end_src
+
+* scratch
+#+begin_src clojure
+(let [pts (random-pts 300 300 40)
+      pf (fn [hull]
+           (let [pts (map :pt hull)]
+             (-> pts
+                 el/polygon
+                 (tf/style {:fill "none"
+                            :stroke-width 3
+                            :stroke "skyblue"}))))]
+  (tools/cider-show (map pf (nested-hull pts))))
+
+(let [pts #_concave-poly-pts bentham-a-outer-pts
+      inflections (get-inflections pts)
+      pf (fn [hull]
+           (let [pts (map :pt hull)]
+             (-> pts
+                 el/polygon
+                 (tf/style {:fill "none"
+                            :stroke-width 1
+                            :stroke "skyblue"}))))]
+  (tools/cider-show
+   (el/g
+    (map pf (nested-hull inflections))
+    (-> pts
+        el/polygon
+        (tf/style {:fill "none"
+                   :stroke-width 1
+                   :stroke "red"})))))
+
+(let [p (-> (p/regular-polygon-pts 100 5) path/polygon (tf/translate [0 0]))]
+  (tools/cider-show
+   (el/g
+    (el/circle 2)
+    (-> p (tf/style {:stroke "green" :fill "none"}))
+    (-> p (tf/scale [1.5 1.5]) (tf/style {:stroke "blue" :fill "none"})))))
+
+#+end_src
+
+* polygen
+Polygen is a generative art piece inspired by some prints I saw at IKEA. They're nice abstract linework pieces, with obvious randomness, but a simple underlying structure, which is perfect for making some art.
+
+The name Polygen comes from the fact that it generates polygons. That's it, really. The strategy is super simple, too:
+
+ - create a set of randomly distributed points
+ - triangulate the points (delaunay)
+ - randomly glue some triangles together to form quads
+ - randomly fill the triangles and quads with a fill strategy
+   - lines
+   - hatches
+   - insets
+   - blank
+   - linerider (flipped hatch)
+
+To add some flair to the presentation, I also built a 'decaying grid' that creates a bunch of polygens and spreads them in a nice tapering fashion.
+
+** build-config
+To run a build:
+
+~clj -A:web -m figwheel.main -b polygen-dev -r~
+
+To build and produce a version to push to GH-PAGES:
+
+~clj -m figwheel.main -bo polygen-prod~
+
+Then:
+mv or cp prod-main.js from
+~./target/public/cljs-out/polygen-prod-main.js~
+
+to
+~./public/js/prod-main.js~
+
+#+BEGIN_SRC clojure :tangle ./polygen-dev.cljs.edn
+^{:watch-dirs ["src"]
+  :css-dirs ["resources"]}
+{:main cypress.polygen
+ :output-to "target/public/cljs-out/dev.js"}
+#+END_SRC
+
+#+BEGIN_SRC clojure :tangle ./polygen-prod.cljs.edn
+^{:watch-dirs ["src"]
+  :css-dirs ["resources"]}
+{:main cypress.polygen
+ :output-to "target/public/cljs-out/polygen.js"
+ :optimizations :simple}
+#+END_SRC
+
+** ns
+#+begin_src clojure :tangle ./src/cypress/polygen.cljs
+(ns cypress.polygen
+  (:require [clojure.string :as str]
+            [reagent.dom :as rdom]
+            [reagent.core :as r]
+            [svg-clj.elements :as el]
+            [svg-clj.transforms :as tf]
+            [svg-clj.composites :as comp :refer [svg]]
+            [sci.core :as sci]
+            [cypress.main :as cyp]))
+
+#+end_src
+
+** state
+#+begin_src clojure :tangle ./src/cypress/polygen.cljs
+(def state
+  (r/atom
+   {:width  {:input-type :slider :value 400 :min 100 :max 2000 :step 5}
+    :height {:input-type :slider :value 400 :min 100 :max 2000 :step 5}
+    :n-points {:input-type :slider :value 20 :min 10 :max 120}
+    :n-quads {:input-type :slider :value 4 :min 0 :max 80}}))
+
+(def render
+  (r/atom
+   (el/g
+    (-> (el/circle 150)
+        (tf/style {:fill "none" :stroke "black" :stroke-width "3px"}))
+    (-> (el/rect 400 400)
+        (tf/style {:fill "white"})))))
+
+#+end_src
+
+** controls
+#+BEGIN_SRC clojure :tangle ./src/cypress/polygen.cljs
+(defn button
+  [label f]
+  [:input {:type "button"
+           :on-click f
+           :value label
+           :style {:width "100px"
+                   :margin "4px"}}])
+
+(defmulti control
+  (fn [[_ {:keys [input-type]}]]
+    input-type))
+
+(defmethod control :slider
+  [[param {:keys [value min max step] :as ctrl}]]
+  [:div {:key param :style {:margin-bottom "3px"}}
+   [:span {:style {:font-weight "bold"
+                   :display "inline-block"
+                   :width "55px"
+                   :text-align "right"}} (name param)]
+   [:input {:type "range" :value value :min min :max max :step step
+            :style {:width "200px"
+                    :padding 0
+                    :vertical-align "middle"
+                    :margin "0px 10px"}
+            :on-change
+            (fn [e]
+              (let [new-value (js/parseInt (.. e -target -value))
+                    new-ctrl (assoc ctrl :value new-value)]
+                (swap! state
+                       (fn [data]
+                         (-> data
+                             (assoc param new-ctrl))))))}]
+   [:span value]])
+
+(defmethod control :dropdown
+  [[param {:keys [value] :as ctrl}]]
+  identity)
+
+(defmethod control :default
+  [[param {:keys [value min max step] :as ctrl}]]
+  identity)
+
+#+END_SRC
+
+** polygen
+Create the art piece given the state atom.
+
+#+BEGIN_SRC clojure :tangle ./src/cypress/polygen.cljs
+(defn polygen
+  [{:keys [width height n-points n-quads] :as state}]
+  (-> (cyp/gen-data
+       (cyp/random-pts (:value width) (:value height) (:value n-points))
+       {:bg "none"
+        :fg "slategray"
+        :quads-n (:value n-quads)})
+      :render))
+
+#+END_SRC
+
+** save-result
+#+BEGIN_SRC clojure :tangle ./src/cypress/polygen.cljs
+(defn to-json [v] (.stringify js/JSON v))
+
+(defn download-object
+  [value export-name]
+  (let [data-blob (js/Blob. #js [value] #js {:type "image/svg+xml"})
+        link (.createElement js/document "a")]
+    (set! (.-href link) (.createObjectURL js/URL data-blob))
+    (.setAttribute link "download" export-name)
+    (.appendChild (.-body js/document) link)
+    (.click link)
+    (.removeChild (.-body js/document) link)))
+
+#+END_SRC
+
+** doc
+#+begin_src clojure :tangle ./src/cypress/polygen.cljs
+(def about
+  [:<>
+   [:p "Polygen is a generative art piece inspired by some prints I saw at IKEA. They're nice abstract linework pieces, with obvious randomness, but a simple underlying structure, which is perfect for making some art."]
+   [:p "The name Polygen comes from the fact that it generates polygons. That's it, really."]
+   [:p "This interface is just the first day pass, It will improve over the next few days as I add more sketches to the project."]])
+
+(defn doc []
+  [:<>
+   [:h1 {:style {:width "100%"
+                 :text-align "center"}} "Cypress:polygen"]
+   about
+   (conj
+    (into [:div {:style
+                 {:max-width "400px"
+                  :margin "0 auto"
+                  :padding 10
+                  :display "flex"
+                  :flex-direction "column"
+                  :justify-content "center"}}
+           [:h3 "Parameters"]]
+          (for [param @state] [control param]))
+   [button "Run" #(reset! render (polygen @state))])
+   [:div
+    {:id "result"
+     :style {:display "grid"
+             :width "max-content"
+             :height "max-content"
+             :margin "24px"
+             :background "white"
+             :box-shadow "rgba(0, 0, 0, 0.24) 0px 3px 8px"}} [svg @render]]
+   [:div
+    [button "Save"
+     #(download-object
+       (.-innerHTML (js/document.getElementById "result"))
+       "polygen.svg")]]])
+
+#+end_src
+
+** mount
+#+BEGIN_SRC clojure :tangle ./src/cypress/polygen.cljs
+(defn mount [app]
+  (rdom/render [app] (js/document.getElementById "app")))
+
+(mount doc)
+(defn ^:after-load re-render [] (mount doc))
+(defonce go (do (mount doc) true))
+#+END_SRC

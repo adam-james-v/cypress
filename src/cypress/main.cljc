@@ -7,8 +7,7 @@
             [svg-clj.transforms :as tf]
             [svg-clj.layout :as lo]
             [svg-clj.parametric :as p]
-            [svg-clj.utils :as utils]
-            [svg-clj.tools :as tools]))
+            [svg-clj.utils :as utils]))
 
 (defn shift
   [pts n]
@@ -90,8 +89,7 @@
          (map #(utils/v- % [wh hh])))))
 
 (defn hull
-  ([pts]
-   (hull [{:pt (first (sort-by first pts))}] pts))
+  ([pts] (hull [{:pt (first (sort-by first pts))}] pts))
   ([acc pts]
    (if (or
         ;; stop the process if acc grows larger than the pts count
@@ -112,6 +110,15 @@
                        (remove #(nil? (:angle %)))
                        (sort-by #(Math/abs (- (:angle %) 180))))]
        (recur (conj acc (first sorted)) pts)))))
+
+(defn nested-hull
+  ([pts] (nested-hull [] pts))
+  ([acc pts]
+   (if (> 3 (count pts))
+     acc
+     (let [hull (hull pts)
+           npts (remove (set (map :pt hull)) pts)]
+       (recur (conj acc hull) npts)))))
 
 (def abs #?(:clj #(Math/abs %)  :cljs js/Math.abs))
 (def pow #?(:clj #(Math/pow %1 %2) :cljs js/Math.pow))
@@ -401,6 +408,19 @@
             [(curve 1)]
             (reverse (map #(%1 (* 1 (- 1 %2))) blns dist)))))
 
+(defn get-inflections
+  [pts]
+  (let [b-pts (reverse pts)
+        a-triples (partition 3 1 (concat [(last pts)] (vec pts) [(first pts)]))
+        b-triples (partition 3 1 (concat [(last b-pts)] (vec b-pts) [(first b-pts)]))
+        a (map second
+               (filter #(< 180 (apply utils/angle-from-pts %)) a-triples))
+        b (map second
+               (filter #(< 180 (apply utils/angle-from-pts %)) b-triples))]
+    (when-not (or (= (count a) (count pts))
+                  (= (count b) (count pts)))
+      (first (sort-by count [a b])))))
+
 (defn hull-check []
   (let [pts (random-pts 240 350 50)
         hull (map :pt (hull pts))
@@ -496,12 +516,12 @@
       fill-quads))
 
 (defn gen-cols
-  [data opts]
+  [data {:keys [fg bg hl] :as opts}]
   (let [cols (random-cols 32)]
     (-> data
-        (assoc :cols {:fg (first cols)
-                      :bg (last cols)
-                      :hl (nth cols 4)}))))
+        (assoc :cols {:fg (if fg {:css fg} (first cols))
+                      :bg (if bg {:css bg} (last cols))
+                      :hl (if hl {:css hl} (nth cols 4))}))))
 
 (defn- render-fill
   [fill-data {:keys [fg]}]

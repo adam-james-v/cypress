@@ -1,0 +1,4 @@
+^{:watch-dirs ["src"]
+  :css-dirs ["resources"]}
+{:main cypress.polygen
+ :output-to "target/public/cljs-out/dev.js"}

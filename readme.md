@@ -8,7 +8,7 @@ Launch a Clojure REPL and load the project. A better usage situation will evolve
 You can also run the (art-grid) function via a CLI script:
 
 ```sh
-clj -M cli.clj
+clj -A:cli -M cli.clj
 ```
 
 Which will save the result to `output.svg`.
