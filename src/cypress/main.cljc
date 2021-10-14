@@ -7,7 +7,9 @@
             [svg-clj.transforms :as tf]
             [svg-clj.layout :as lo]
             [svg-clj.parametric :as p]
-            [svg-clj.utils :as utils]))
+            [svg-clj.utils :as utils]
+            #?(:clj [svg-clj.tools :as tools])
+            #?(:clj [cypress.animate :refer [animate!]])))
 
 (defn shift
   [pts n]
@@ -56,7 +58,7 @@
 (defn sketch-line
   [a b]
   (let [dr 0.75
-        dg 35
+        dg 15
         l (el/line a b)
         lu (tf/offset l dr)
         ld (tf/offset l (- dr))
@@ -763,3 +765,160 @@
          (tf/style line-style)))))
 
 #_(tools/save-svg "gen-art3.svg" (svg-clj.composites/svg (gen-art3 500 700 24 true)))
+
+(defn sinwave
+  [amp freq]
+  (fn [t]
+    (* amp (Math/sin (* t freq Math/PI)))))
+
+(defn blend
+  [fa fb alpha]
+  (fn [t]
+    (let [line (p/line (fa t) (fb t))]
+      (line alpha))))
+
+(defn fn-offset
+  [curve f]
+  (let [eps 0.000001]
+    (fn [t]
+      (let [t (cond (<= (- 1 eps) t) (- 1 eps)
+                    (> eps t) eps
+                    :else t)
+            n (utils/normalize (utils/normal (curve (- t eps)) (curve (+ t eps))))
+            tpt (curve t)
+            l (p/line tpt (utils/v+ tpt n))]
+        (l (f t))))))
+
+(defn blob
+  [w h blend-factor]
+  (let [max-r (* 0.27 (min w h))
+        min-r (* 0.07 (min w h))
+        pts (->>
+             (for [pt (random-pts (- w max-r) (- h max-r) 5)]
+               (let [r (+ (rand-int min-r) (- max-r min-r))
+                     pts (p/regular-polygon-pts r 45)]
+                 (map #(utils/v+ % pt) pts)))
+             (apply concat)
+             hull
+             (map :pt))
+        fa (p/polygon pts)
+        r (/ (apply max (utils/bb-dims pts)) 2.0)
+        fb (-> (p/circle (* 0.75 r))
+               (p/translate (utils/centroid-of-pts pts))
+               (p/rotate 180))
+        f (blend fb fa blend-factor)
+        tmp-pts (map f (range 0 1.005 0.005))
+        [fw fh] (utils/bb-dims tmp-pts)
+        ctr (utils/centroid-of-pts tmp-pts)
+        sc (apply min (map / [w h] [fw fh]))]
+    (-> f
+        (p/translate (utils/v* [-1 -1] ctr))
+        (p/scale [sc sc]))))
+
+(defn good-blob
+  []
+  (fn-offset (blob 400 400 3) (sinwave 4 20)))
+
+(defn hair
+  []
+  (-> (el/line [0 0] [0 (+ (+ 7 (rand-int 7)))])
+      (tf/style {:stroke "black"
+                 :stroke-linecap "round"
+                 :stroke-linejoin "round"
+                 :stroke-width 2})))
+
+(defn spike
+  [w h]
+  (let [shape (el/polyline [[(* -0.5 w) 0] [0 (- h)] [(* 0.5 w) 0]])
+        ctr (tf/centroid shape)]
+  (-> shape
+      (tf/translate (utils/v* [-2 -2] ctr))
+      (tf/style {:stroke "black"
+                 :stroke-linecap "round"
+                 :stroke-linejoin "round"
+                 :fill "white"
+                 :stroke-width 2}))))
+
+(defn semi-circle
+  [r]
+  (let [shape (-> (p/regular-polygon-pts r 24)
+                  (->> (take 13))
+                  el/polyline)
+        ctr (tf/centroid shape)]
+  (-> shape
+      (tf/rotate 180)
+      (tf/style {:stroke "black"
+                 :fill "white"
+                 :stroke-linejoin "round"
+                 :stroke-width 2}))))
+
+(defn bubble
+  []
+  (-> (p/regular-polygon-pts (+ 5 (rand-int 12)) 11)
+      sketch-polygon
+      (tf/translate [0 (- (+ 17 (rand-int 40)))])
+      (tf/style {:stroke "black"
+                 :fill "rgba(255,255,255,0.12)"
+                 :opacity (rand)
+                 :stroke-width (inc (rand 1))})))
+
+(defn amoeba
+  []
+  (let [c-start (good-blob)
+        c-end (good-blob)
+        n-spikes 85
+        n-paths 15
+        n-bubbles 15
+        hairs (repeatedly (* 4 n-spikes) hair)
+        bubbles (shuffle (concat
+                         (repeatedly n-bubbles bubble)))
+        c (fn [t] (blend c-start c-end t))]
+    (fn [t]
+      (let [c (c t)
+            pts (map c (range 0 1 0.0125))
+            inner-paths (inset-lines pts n-paths)
+            pf #(-> (el/polygon %2)
+                    (tf/style {:fill "none"
+                               :stroke-width 1
+                               :stroke "black"
+                               :opacity (* 0.625 (- 1 (/ %1 n-paths)))}))
+            spike-l (->> (range 0 n-spikes)
+                         (take 2)
+                         (map #(c (float (/ % n-spikes))))
+                         (apply utils/distance))]
+        (el/g
+         (-> (el/polygon pts)
+             (tf/style {:fill "black"
+                        :opacity 0.35}))
+         (map-indexed pf inner-paths)
+         (->> (lo/distribute-on-curve hairs c)
+              drop-last)
+         (->> (lo/distribute-on-curve (repeat n-spikes (semi-circle (/ spike-l 2.0))) c)
+              drop-last
+              (partition 2)
+              (map first))
+         (->> (lo/distribute-on-curve (repeat n-spikes (spike spike-l 10)) c)
+              drop-last
+              (partition 2)
+              (map second))
+         (->> (lo/distribute-on-curve bubbles c))
+         (-> (el/polygon pts)
+             (tf/style {:fill "none"
+                        :stroke-width 3
+                        :stroke "black"})))))))
+
+(def amoeba-anim
+  (let [amoeba (amoeba)]
+    {:name "amoeba"
+     :framerate 24
+     :duration 1
+     :graphics-fn
+     (fn [t]
+       (-> (el/g
+            (-> (el/rect 500 500)
+                (tf/translate [250 250])
+                (tf/style {:fill "white"}))
+            (-> t
+                (amoeba)
+                (tf/translate [250 250])))
+           (svg 500 500)))}))

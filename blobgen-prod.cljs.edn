@@ -1,0 +1,5 @@
+^{:watch-dirs ["src"]
+  :css-dirs ["resources"]}
+{:main cypress.blobgen
+ :output-to "target/public/cljs-out/blobgen.js"
+ :optimizations :simple}

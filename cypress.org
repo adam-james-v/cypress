@@ -79,6 +79,7 @@ Cypress main will contain the bulk of the art code and utilities, and each sketc
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="utf-8">
     <title>Cypress: Generative Art Sketches</title>
     <link rel="stylesheet" href="codemirror.css">
     <link rel="stylesheet" href="nord.css">
@@ -255,13 +256,14 @@ A collection of generative art functions and ideas.
             [svg-clj.transforms :as tf]
             [svg-clj.layout :as lo]
             [svg-clj.parametric :as p]
-            [svg-clj.utils :as utils]))
+            [svg-clj.utils :as utils]
+            #?(:clj [svg-clj.tools :as tools])
+            #?(:clj [cypress.animate :refer [animate!]])))
 
 #+end_src
 
 #+begin_src clojure
 (load-file "src/cypress/main.cljc")
-
 
 #+end_src
 
@@ -326,7 +328,7 @@ Make lines look somewhat handdrawn
 (defn sketch-line
   [a b]
   (let [dr 0.75
-        dg 35
+        dg 15
         l (el/line a b)
         lu (tf/offset l dr)
         ld (tf/offset l (- dr))
@@ -1164,6 +1166,202 @@ Fills are the line patterns created by the previously defined fill strategies.
          (tf/style line-style)))))
 
 #_(tools/save-svg "gen-art3.svg" (svg-clj.composites/svg (gen-art3 500 700 24 true)))
+#+end_src
+
+**** blob-gen-idea
+#+begin_src clojure :tangle ./src/cypress/main.cljc
+(defn sinwave
+  [amp freq]
+  (fn [t]
+    (* amp (Math/sin (* t freq Math/PI)))))
+
+(defn blend
+  [fa fb alpha]
+  (fn [t]
+    (let [line (p/line (fa t) (fb t))]
+      (line alpha))))
+
+(defn fn-offset
+  [curve f]
+  (let [eps 0.000001]
+    (fn [t]
+      (let [t (cond (<= (- 1 eps) t) (- 1 eps)
+                    (> eps t) eps
+                    :else t)
+            n (utils/normalize (utils/normal (curve (- t eps)) (curve (+ t eps))))
+            tpt (curve t)
+            l (p/line tpt (utils/v+ tpt n))]
+        (l (f t))))))
+
+(defn blob
+  [w h blend-factor]
+  (let [max-r (* 0.27 (min w h))
+        min-r (* 0.07 (min w h))
+        pts (->>
+             (for [pt (random-pts (- w max-r) (- h max-r) 5)]
+               (let [r (+ (rand-int min-r) (- max-r min-r))
+                     pts (p/regular-polygon-pts r 45)]
+                 (map #(utils/v+ % pt) pts)))
+             (apply concat)
+             hull
+             (map :pt))
+        fa (p/polygon pts)
+        r (/ (apply max (utils/bb-dims pts)) 2.0)
+        fb (-> (p/circle (* 0.75 r))
+               (p/translate (utils/centroid-of-pts pts))
+               (p/rotate 180))
+        f (blend fb fa blend-factor)
+        tmp-pts (map f (range 0 1.005 0.005))
+        [fw fh] (utils/bb-dims tmp-pts)
+        ctr (utils/centroid-of-pts tmp-pts)
+        sc (apply min (map / [w h] [fw fh]))]
+    (-> f
+        (p/translate (utils/v* [-1 -1] ctr))
+        (p/scale [sc sc]))))
+
+(defn good-blob
+  []
+  (fn-offset (blob 400 400 3) (sinwave 4 20)))
+
+(defn hair
+  []
+  (-> (el/line [0 0] [0 (+ (+ 7 (rand-int 7)))])
+      (tf/style {:stroke "black"
+                 :stroke-linecap "round"
+                 :stroke-linejoin "round"
+                 :stroke-width 2})))
+
+(defn spike
+  [w h]
+  (let [shape (el/polyline [[(* -0.5 w) 0] [0 (- h)] [(* 0.5 w) 0]])
+        ctr (tf/centroid shape)]
+  (-> shape
+      (tf/translate (utils/v* [-2 -2] ctr))
+      (tf/style {:stroke "black"
+                 :stroke-linecap "round"
+                 :stroke-linejoin "round"
+                 :fill "white"
+                 :stroke-width 2}))))
+
+(defn semi-circle
+  [r]
+  (let [shape (-> (p/regular-polygon-pts r 24)
+                  (->> (take 13))
+                  el/polyline)
+        ctr (tf/centroid shape)]
+  (-> shape
+      (tf/rotate 180)
+      (tf/style {:stroke "black"
+                 :fill "white"
+                 :stroke-linejoin "round"
+                 :stroke-width 2}))))
+
+(defn bubble
+  []
+  (-> (p/regular-polygon-pts (+ 5 (rand-int 12)) 11)
+      sketch-polygon
+      (tf/translate [0 (- (+ 17 (rand-int 40)))])
+      (tf/style {:stroke "black"
+                 :fill "rgba(255,255,255,0.12)"
+                 :opacity (rand)
+                 :stroke-width (inc (rand 1))})))
+
+(defn amoeba
+  []
+  (let [c-start (good-blob)
+        c-end (good-blob)
+        n-spikes 85
+        n-paths 15
+        n-bubbles 15
+        hairs (repeatedly (* 4 n-spikes) hair)
+        bubbles (shuffle (concat
+                         (repeatedly n-bubbles bubble)))
+        c (fn [t] (blend c-start c-end t))]
+    (fn [t]
+      (let [c (c t)
+            pts (map c (range 0 1 0.0125))
+            inner-paths (inset-lines pts n-paths)
+            pf #(-> (el/polygon %2)
+                    (tf/style {:fill "none"
+                               :stroke-width 1
+                               :stroke "black"
+                               :opacity (* 0.625 (- 1 (/ %1 n-paths)))}))
+            spike-l (->> (range 0 n-spikes)
+                         (take 2)
+                         (map #(c (float (/ % n-spikes))))
+                         (apply utils/distance))]
+        (el/g
+         (-> (el/polygon pts)
+             (tf/style {:fill "black"
+                        :opacity 0.35}))
+         (map-indexed pf inner-paths)
+         (->> (lo/distribute-on-curve hairs c)
+              drop-last)
+         (->> (lo/distribute-on-curve (repeat n-spikes (semi-circle (/ spike-l 2.0))) c)
+              drop-last
+              (partition 2)
+              (map first))
+         (->> (lo/distribute-on-curve (repeat n-spikes (spike spike-l 10)) c)
+              drop-last
+              (partition 2)
+              (map second))
+         (->> (lo/distribute-on-curve bubbles c))
+         (-> (el/polygon pts)
+             (tf/style {:fill "none"
+                        :stroke-width 3
+                        :stroke "black"})))))))
+
+(def amoeba-anim
+  (let [amoeba (amoeba)]
+    {:name "amoeba"
+     :framerate 24
+     :duration 1
+     :graphics-fn
+     (fn [t]
+       (-> (el/g
+            (-> (el/rect 500 500)
+                (tf/translate [250 250])
+                (tf/style {:fill "white"}))
+            (-> t
+                (amoeba)
+                (tf/translate [250 250])))
+           (svg 500 500)))}))
+
+#+end_src
+
+* animate
+#+begin_src clojure :tangle ./src/cypress/animate.clj
+(ns cypress.animate
+  (:require [clojure.string :as str]
+            [svg-clj.tools :as tools]
+            [clojure.java.shell :as sh :refer [sh]]))
+
+(defn- anim-frames! [f name framerate dur]
+  (let [mkdir (sh "mkdir" "-pv" name)
+        frames (int (* framerate dur))
+        framefn (fn [fr]
+                  (let [fname (format (str name "/%03d") fr)]
+                    (do (tools/save-svg (f (/ fr frames)) (str fname ".svg"))
+                        (sh "/usr/local/bin/inkscape"
+                            (str "--export-filename=" fname ".png")
+                            (str fname ".svg"))
+                        #_(sh "/usr/local/bin/convert" (str fname ".svg") (str fname ".png")))))]
+    (when (= 0 (:exit mkdir))
+        (into [] (map framefn (range 1 (inc frames)))))))
+
+(defn- anim-video! [name framerate]
+  (let [ffmpeg 
+        (sh "/usr/local/bin/ffmpeg" "-f" "image2" "-r" (str framerate)
+            "-i" (str name "/%03d.png")
+            "-c:v" "libvpx-vp9" "-vf" "format=rgba"
+            "-pix_fmt" "yuva420p" "-b:v" "800k"
+            "-y" (str name ".webm"))]
+    (when (= 0 (:exit ffmpeg))
+      (sh "rm" "-rf" name))))
+
+(defn animate! [{:keys [graphics-fn name framerate duration]}]
+  (do (anim-frames! graphics-fn name framerate duration)
+      (anim-video! name framerate)))
 
 #+end_src
 
@@ -1304,6 +1502,82 @@ An interface to generate output via command line. This may be removed later, it'
 
 #+end_src
 
+* ui
+** ns
+#+begin_src clojure :tangle ./src/cypress/ui.cljs
+(ns cypress.ui
+  (:require [clojure.string :as str]
+            [reagent.dom :as rdom]
+            [reagent.core :as r]))
+
+#+end_src
+
+** button
+#+BEGIN_SRC clojure :tangle ./src/cypress/ui.cljs
+(defn button
+  [label f]
+  [:input {:type "button"
+           :on-click f
+           :value label
+           :style {:width "100px"
+                   :margin "4px"}}])
+
+#+END_SRC
+
+** controls
+#+BEGIN_SRC clojure :tangle ./src/cypress/ui.cljs
+(defmulti control
+  (fn [_ [_ {:keys [input-type]}]]
+    input-type))
+
+(defmethod control :slider
+  [state [param {:keys [value min max step] :as ctrl}]]
+  [:div {:key param :style {:margin-bottom "3px"}}
+   [:span {:style {:font-weight "bold"
+                   :display "inline-block"
+                   :width "55px"
+                   :text-align "right"}} (name param)]
+   [:input {:type "range" :value value :min min :max max :step step
+            :style {:width "200px"
+                    :padding 0
+                    :vertical-align "middle"
+                    :margin "0px 10px"}
+            :on-change
+            (fn [e]
+              (let [new-value (js/parseInt (.. e -target -value))
+                    new-ctrl (assoc ctrl :value new-value)]
+                (swap! state
+                       (fn [data]
+                         (-> data
+                             (assoc param new-ctrl))))))}]
+   [:span value]])
+
+(defmethod control :dropdown
+  [state [param {:keys [value] :as ctrl}]]
+  identity)
+
+(defmethod control :default
+  [state [param {:keys [value min max step] :as ctrl}]]
+  identity)
+
+#+END_SRC
+
+** save-result
+#+BEGIN_SRC clojure :tangle ./src/cypress/ui.cljs
+(defn to-json [v] (.stringify js/JSON v))
+
+(defn download-object
+  [value export-name]
+  (let [data-blob (js/Blob. #js [value] #js {:type "image/svg+xml"})
+        link (.createElement js/document "a")]
+    (set! (.-href link) (.createObjectURL js/URL data-blob))
+    (.setAttribute link "download" export-name)
+    (.appendChild (.-body js/document) link)
+    (.click link)
+    (.removeChild (.-body js/document) link)))
+
+#+END_SRC
+
 * polygen
 Polygen is a generative art piece inspired by some prints I saw at IKEA. They're nice abstract linework pieces, with obvious randomness, but a simple underlying structure, which is perfect for making some art.
 
@@ -1328,11 +1602,11 @@ To run a build:
 
 To build and produce a version to push to GH-PAGES:
 
-~clj -m figwheel.main -bo polygen-prod~
+~clj -A:web -m figwheel.main -bo polygen-prod~
 
 Then:
 mv or cp prod-main.js from
-~./target/public/cljs-out/polygen-prod-main.js~
+~./target/public/cljs-out/polygen.js~
 
 to
 ~./public/js/prod-main.js~
@@ -1361,8 +1635,8 @@ to
             [svg-clj.elements :as el]
             [svg-clj.transforms :as tf]
             [svg-clj.composites :as comp :refer [svg]]
-            [sci.core :as sci]
-            [cypress.main :as cyp]))
+            [cypress.main :as cyp]
+            [cypress.ui :as ui]))
 
 #+end_src
 
@@ -1385,52 +1659,6 @@ to
 
 #+end_src
 
-** controls
-#+BEGIN_SRC clojure :tangle ./src/cypress/polygen.cljs
-(defn button
-  [label f]
-  [:input {:type "button"
-           :on-click f
-           :value label
-           :style {:width "100px"
-                   :margin "4px"}}])
-
-(defmulti control
-  (fn [[_ {:keys [input-type]}]]
-    input-type))
-
-(defmethod control :slider
-  [[param {:keys [value min max step] :as ctrl}]]
-  [:div {:key param :style {:margin-bottom "3px"}}
-   [:span {:style {:font-weight "bold"
-                   :display "inline-block"
-                   :width "55px"
-                   :text-align "right"}} (name param)]
-   [:input {:type "range" :value value :min min :max max :step step
-            :style {:width "200px"
-                    :padding 0
-                    :vertical-align "middle"
-                    :margin "0px 10px"}
-            :on-change
-            (fn [e]
-              (let [new-value (js/parseInt (.. e -target -value))
-                    new-ctrl (assoc ctrl :value new-value)]
-                (swap! state
-                       (fn [data]
-                         (-> data
-                             (assoc param new-ctrl))))))}]
-   [:span value]])
-
-(defmethod control :dropdown
-  [[param {:keys [value] :as ctrl}]]
-  identity)
-
-(defmethod control :default
-  [[param {:keys [value min max step] :as ctrl}]]
-  identity)
-
-#+END_SRC
-
 ** polygen
 Create the art piece given the state atom.
 
@@ -1443,22 +1671,6 @@ Create the art piece given the state atom.
         :fg "slategray"
         :quads-n (:value n-quads)})
       :render))
-
-#+END_SRC
-
-** save-result
-#+BEGIN_SRC clojure :tangle ./src/cypress/polygen.cljs
-(defn to-json [v] (.stringify js/JSON v))
-
-(defn download-object
-  [value export-name]
-  (let [data-blob (js/Blob. #js [value] #js {:type "image/svg+xml"})
-        link (.createElement js/document "a")]
-    (set! (.-href link) (.createObjectURL js/URL data-blob))
-    (.setAttribute link "download" export-name)
-    (.appendChild (.-body js/document) link)
-    (.click link)
-    (.removeChild (.-body js/document) link)))
 
 #+END_SRC
 
@@ -1484,8 +1696,8 @@ Create the art piece given the state atom.
                   :flex-direction "column"
                   :justify-content "center"}}
            [:h3 "Parameters"]]
-          (for [param @state] [control param]))
-   [button "Run" #(reset! render (polygen @state))])
+          (for [param @state] [ui/control state param]))
+   [ui/button "Run" #(reset! render (polygen @state))])
    [:div
     {:id "result"
      :style {:display "grid"
@@ -1495,8 +1707,8 @@ Create the art piece given the state atom.
              :background "white"
              :box-shadow "rgba(0, 0, 0, 0.24) 0px 3px 8px"}} [svg @render]]
    [:div
-    [button "Save"
-     #(download-object
+    [ui/button "Save"
+     #(ui/download-object
        (.-innerHTML (js/document.getElementById "result"))
        "polygen.svg")]]])
 
@@ -1504,6 +1716,117 @@ Create the art piece given the state atom.
 
 ** mount
 #+BEGIN_SRC clojure :tangle ./src/cypress/polygen.cljs
+(defn mount [app]
+  (rdom/render [app] (js/document.getElementById "app")))
+
+(mount doc)
+(defn ^:after-load re-render [] (mount doc))
+(defonce go (do (mount doc) true))
+#+END_SRC
+
+* blobgen
+** build-config
+To run a build:
+
+~clj -A:web -m figwheel.main -b blobgen-dev -r~
+
+To build and produce a version to push to GH-PAGES:
+
+~clj -A:web -m figwheel.main -bo blobgen-prod~
+
+Then:
+mv or cp prod-main.js from
+~./target/public/cljs-out/blobgen.js~
+
+to the site directory
+
+#+BEGIN_SRC clojure :tangle ./blobgen-dev.cljs.edn
+^{:watch-dirs ["src"]
+  :css-dirs ["resources"]}
+{:main cypress.blobgen
+ :output-to "target/public/cljs-out/dev.js"}
+#+END_SRC
+
+#+BEGIN_SRC clojure :tangle ./blobgen-prod.cljs.edn
+^{:watch-dirs ["src"]
+  :css-dirs ["resources"]}
+{:main cypress.blobgen
+ :output-to "target/public/cljs-out/blobgen.js"
+ :optimizations :simple}
+#+END_SRC
+
+** ns
+#+begin_src clojure :tangle ./src/cypress/blobgen.cljs
+(ns cypress.blobgen
+  (:require [clojure.string :as str]
+            [reagent.dom :as rdom]
+            [reagent.core :as r]
+            [svg-clj.elements :as el]
+            [svg-clj.transforms :as tf]
+            [svg-clj.composites :as comp :refer [svg]]
+            [cypress.main :as cyp]
+            [cypress.ui :as ui]))
+
+#+end_src
+
+** state
+#+begin_src clojure :tangle ./src/cypress/blobgen.cljs
+(def state
+  (r/atom
+   {}
+   #_{:t {:input-type :slider :value 0 :min 0 :max 100 :step 4}}))
+
+(def render
+  (r/atom ((cyp/amoeba) 0.5)))
+
+#+end_src
+
+** doc
+#+begin_src clojure :tangle ./src/cypress/blobgen.cljs
+(def about
+  [:<>
+   [:p "Blobgen is an experiment in creating organic shapes."]
+   [:p "This first pass at blob generation works reasonably well and produces things that I think look like amoebas. Neat!"]
+   [:p "To throw some extra stuff on top of the blob gen, I came up with some edge drawings to add some visual flair."]])
+
+(defn doc []
+  [:<>
+   [:h1 {:style {:width "100%"
+                 :text-align "center"}} "Cypress:blobgen"]
+   about
+   (conj
+    (into [:div {:style
+                 {:max-width "400px"
+                  :margin "0 auto"
+                  :padding 10
+                  :display "flex"
+                  :flex-direction "column"
+                  :justify-content "center"}}
+           [:h3 "Parameters"]]
+          (for [param @state] [ui/control state param]))
+    [ui/button "Run" #(reset! render ((cyp/amoeba) 0.5))])
+   [:div
+    {:id "result"
+     :style {:display "grid"
+             :width "max-content"
+             :height "max-content"
+             :margin "24px"
+             :padding "10px"
+             :background "white"
+             :box-shadow "rgba(0, 0, 0, 0.24) 0px 3px 8px"}}
+    [svg @render] #_(-> @render
+        (tf/translate [250 250])
+        [svg 500 500])]
+   [:div
+    [ui/button "Save"
+     #(ui/download-object
+       (.-innerHTML (js/document.getElementById "result"))
+       "blobgen.svg")]]])
+
+#+end_src
+
+** mount
+#+BEGIN_SRC clojure :tangle ./src/cypress/blobgen.cljs
 (defn mount [app]
   (rdom/render [app] (js/document.getElementById "app")))
 
