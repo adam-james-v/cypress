@@ -183,6 +183,83 @@
      :tris tris
      #_#_:edges (distinct (mapcat edges tris))}))
 
+(defn fillet-pts
+  [pts r]
+  (let [fillet (p/regular-polygon-pts r 50)
+        ipts (tf/offset-pts pts (- r))
+        f (fn [pt] (map #(utils/v+ pt %) fillet))
+        npts (mapcat f ipts)]
+    (map :pt (hull npts))))
+
+(defn chamfer-pts
+  [pts r]
+  (let [fillet (p/regular-polygon-pts r 50)
+        ipts (tf/offset-pts pts (- r))
+        f (fn [pt] (map #(utils/v+ pt %) fillet))
+        npts (mapcat f ipts)]
+    (->> (hull npts)
+         (map :pt)
+         (partition 2 1)
+         (sort-by #(apply utils/distance %))
+         reverse
+         (take (count pts))
+         (apply concat)
+         hull
+         (map :pt))))
+
+(def iso-euler-angles [35.264 45 0])
+(def origin-angle-adjust-a [90 0 0])
+(def origin-angle-adjust-b [0 -90 0])
+
+(defn- sin-cos-pair [theta]
+  [(Math/sin ^long (utils/to-rad theta))
+   (Math/cos ^long (utils/to-rad theta))])
+
+(defn- rot-pt-2d
+  [[x y] theta]
+  (let [[s-t c-t] (sin-cos-pair theta)]
+    [(- (* x c-t) (* y s-t))
+     (+ (* y c-t) (* x s-t))]))
+
+;; this rotates a point around [0,0,0]
+(defn- rot-pt
+  [[x y z] axis theta]
+  (cond
+    (= axis :x) (into [x] (rot-pt-2d [y z] theta))
+    (= axis :y) (apply #(into [] [%2 y %1]) (rot-pt-2d [z x] theta))
+    (= axis :z) (into (rot-pt-2d [x y] theta) [z])))
+
+(defn- rotate-point
+  [pt [ax ay az]]
+  (let [pt (if (< (count pt) 3)
+             (conj pt 0)
+             pt)]
+    (-> pt
+        (rot-pt :z az)
+        (rot-pt :y ay)
+        (rot-pt :x ax))))
+
+(defn- rotate-points
+  [pts [ax ay az]]
+  (mapv #(rotate-point % [ax ay az]) pts))
+
+(defn isometric-xf
+  [pts]
+  (-> pts
+      (rotate-points origin-angle-adjust-a)
+      (rotate-points origin-angle-adjust-b)
+      (rotate-points iso-euler-angles)))
+
+(defn top-xf
+  [pts]
+  (-> pts
+      (rotate-points [0 0 0])))
+
+(defn right-xf
+  [pts]
+  (-> pts
+      (rotate-points [90 0 0])))
+
 (defn- edge-to-right?
   [pt edge]
   (let [[px _] pt
@@ -628,6 +705,71 @@
          (tf/style {:fill (:css (:bg cols))}))
      res)))
 
+(defn sinwave
+  [amp freq]
+  (fn [t]
+    (* amp (Math/sin (* t freq Math/PI)))))
+
+(defn blend
+  [fa fb alpha]
+  (fn [t]
+    (let [line (p/line (fa t) (fb t))]
+      (line alpha))))
+
+(defn- remap-within
+  [f [start end] x]
+  (when (and (>= x start) (< x end))
+    (let [step (- end start)
+          t (/ (- x start) step)]
+      (f t))))
+
+(defn eased-polyline
+  [pts easefn]
+  (let [step (/ 1.0 (dec (count pts)))
+        lines (map (partial apply p/line) (partition 2 1 pts))
+        length (reduce + (map #(:length (%)) lines))
+        intervals (->> lines
+                       (map #(:length (%)))
+                       (reductions +)
+                       (concat [0])
+                       (map #(/ % length))
+                       (partition 2 1))
+        easedlines (map #(fn [t] (% (easefn t))) lines)]
+    (fn
+      ([] {:fn `polyline
+           :input [pts]
+           :length length})
+      ([t]
+       (cond
+         (= (float t) 0.0) (first pts)
+         (= (float t) 1.0) (last pts)
+         :else
+         (first
+          (filter some?
+                  (map #(remap-within %1 %2 t) easedlines intervals))))))))
+
+(defn multiblend
+  ([fs alpha]
+   (fn [t]
+     (let [line (p/polyline (map #(% t) fs))]
+       (line alpha))))
+  ([fs easefn alpha]
+   (fn [t]
+     (let [line (eased-polyline (map #(% t) fs) easefn)]
+       (line alpha))))) 
+
+(defn fn-offset
+  [curve f]
+  (let [eps 0.000001]
+    (fn [t]
+      (let [t (cond (<= (- 1 eps) t) (- 1 eps)
+                    (> eps t) eps
+                    :else t)
+            n (utils/normalize (utils/normal (curve (- t eps)) (curve (+ t eps))))
+            tpt (curve t)
+            l (p/line tpt (utils/v+ tpt n))]
+        (l (f t))))))
+
 (def bg "#455D7A")
 (def lcol "#F95959")
 (def fg "#BA6375")
@@ -766,29 +908,6 @@
 
 #_(tools/save-svg "gen-art3.svg" (svg-clj.composites/svg (gen-art3 500 700 24 true)))
 
-(defn sinwave
-  [amp freq]
-  (fn [t]
-    (* amp (Math/sin (* t freq Math/PI)))))
-
-(defn blend
-  [fa fb alpha]
-  (fn [t]
-    (let [line (p/line (fa t) (fb t))]
-      (line alpha))))
-
-(defn fn-offset
-  [curve f]
-  (let [eps 0.000001]
-    (fn [t]
-      (let [t (cond (<= (- 1 eps) t) (- 1 eps)
-                    (> eps t) eps
-                    :else t)
-            n (utils/normalize (utils/normal (curve (- t eps)) (curve (+ t eps))))
-            tpt (curve t)
-            l (p/line tpt (utils/v+ tpt n))]
-        (l (f t))))))
-
 (defn blob
   [w h blend-factor]
   (let [max-r (* 0.27 (min w h))
@@ -865,6 +984,7 @@
 (defn amoeba
   []
   (let [c-start (good-blob)
+        c-mid (good-blob)
         c-end (good-blob)
         n-spikes 85
         n-paths 15
@@ -872,7 +992,10 @@
         hairs (repeatedly (* 4 n-spikes) hair)
         bubbles (shuffle (concat
                          (repeatedly n-bubbles bubble)))
-        c (fn [t] (blend c-start c-end t))]
+        c (fn [t] (multiblend [c-start
+                               c-mid
+                               c-end
+                               c-start] t))]
     (fn [t]
       (let [c (c t)
             pts (map c (range 0 1 0.0125))
@@ -907,11 +1030,13 @@
                         :stroke-width 3
                         :stroke "black"})))))))
 
+(def a (amoeba))
+
 (def amoeba-anim
-  (let [amoeba (amoeba)]
+  (let [amoeba a]
     {:name "amoeba"
      :framerate 24
-     :duration 1
+     :duration 2
      :graphics-fn
      (fn [t]
        (-> (el/g
@@ -922,3 +1047,232 @@
                 (amoeba)
                 (tf/translate [250 250])))
            (svg 500 500)))}))
+
+(defn ease-in-out-sin
+  [t]
+  (/ (- (Math/cos (* Math/PI t)) 1) -2))
+
+(defn ease-in-out-cubic
+  [t]
+  (if (< t 0.5)
+    (* 4 t t t)
+    (- 1 (/ (Math/pow (* -2 (+ t 2)) 3) 2))))
+
+(defn blend-pillar
+  []
+  (let [r 70
+        s (-> (p/circle 2) (p/rotate 180))
+        a (-> (blob 100 100 7) (p/translate (first (random-pts (- r) r 1))))
+        b (-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
+        c (-> (blob 80 80 3) (p/translate (first (random-pts (- r) r 1))))
+        d (-> (blob 100 100 3) (p/translate (first (random-pts (- r) r 1))))
+        e (-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
+        f (-> (blob 60 60 5) (p/translate (first (random-pts (- r) r 1))))
+        shapefn #(multiblend [s a b c d e f s] ease-in-out-sin %)
+        z 2
+        n 270
+        f (fn [layer]
+            (-> (shapefn (/ layer n))
+                (map (range 0 1 0.01))
+                isometric-xf
+                el/polygon
+                (tf/translate [0 (* layer z 1)])
+                (tf/style {:fill "rgba(255,255,255,0.4)"
+                           :stroke "black"
+                           :stroke-width 1})))]
+    (-> (el/g (reverse (map f (range 0 (inc n)))))
+        #_(tf/rotate 90))))
+
+(defn blend-pillar-anim-fn
+  []
+  (let [r 70
+        s (-> (p/circle 2) (p/rotate 180))
+        a1 (-> (blob 100 100 7) (p/translate (first (random-pts (- r) r 1))))
+        b1 (-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
+        c1 (-> (blob 80 80 3) (p/translate (first (random-pts (- r) r 1))))
+        d1 (-> (blob 100 100 3) (p/translate (first (random-pts (- r) r 1))))
+        e1 (-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
+        f1 (-> (blob 60 60 5) (p/translate (first (random-pts (- r) r 1))))
+        a2 (-> (blob 100 100 7) (p/translate (first (random-pts (- r) r 1))))
+        b2 (-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
+        c2 (-> (blob 80 80 3) (p/translate (first (random-pts (- r) r 1))))
+        d2 (-> (blob 100 100 3) (p/translate (first (random-pts (- r) r 1))))
+        e2 (-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
+        f2 (-> (blob 60 60 5) (p/translate (first (random-pts (- r) r 1))))
+        af #(multiblend [a1 a2 a1] ease-in-out-sin %)
+        bf #(multiblend [b1 b2 b1] ease-in-out-sin %)
+        cf #(multiblend [c1 c2 c1] ease-in-out-sin %)
+        df #(multiblend [d1 d2 d1] ease-in-out-sin %)
+        ef #(multiblend [e1 e2 e1] ease-in-out-sin %)
+        ff #(multiblend [f1 f2 f1] ease-in-out-sin %)
+        z 4
+        n 100
+        animfn (fn [t]
+                 #(multiblend
+                  [s (af t) (bf t) (cf t) (df t) (ef t) (ff t) s]
+                  ease-in-out-sin %))]
+    (fn [t]
+      (let [bg (-> (el/rect 700 700) (tf/style {:fill "white"}))
+            shapefn (animfn t)
+            f (fn [layer]
+                (-> (shapefn (/ layer n))
+                    (map (range 0 1 0.01))
+                    isometric-xf
+                    el/polygon
+                    (tf/translate [0 (* layer z 1)])
+                    (tf/style {:fill "white"
+                               :stroke "black"
+                               :stroke-width 1})))
+            shape (el/g (reverse (map f (range 0 (inc n)))))
+            ctr (tf/centroid shape)]
+        (el/g
+         bg
+         (-> shape
+             (tf/translate (utils/v* [-1 -1] ctr))))))))
+
+(defn three-pillars
+  []
+  (let [[a b c] (repeatedly 3 blend-pillar)
+        shape (el/g (-> a (tf/translate [0 0]))
+                    (-> b (tf/translate [250 0]))
+                    (-> c (tf/translate [500 0])))
+        bg (-> (el/polygon (tf/bounds shape))
+               (tf/offset 125)
+               (tf/style {:fill "white"}))]
+    (el/g bg shape)))
+
+(def pillar-anim (blend-pillar-anim-fn))
+
+(def blend-pillar-anim
+  {:name "blend-pillar"
+   :framerate 24
+   :duration 1
+   :graphics-fn pillar-anim})
+
+(def cell-size 12)
+(def base-style {:fill "none"
+                 :stroke "#83aa9d"
+                 :stroke-width 2
+                 :stroke-linecap "round"})
+
+(defn line-tile
+  [w h] 
+   (-> (el/line [w 0] [0 h])
+       (tf/style base-style)))
+
+(defn tri-tile
+  [w h]
+  (-> (el/polygon [[0 h] [w h] [w 0]])
+      (tf/style {:fill "white"})))
+
+(defn quarter-circle-tile
+  [w h]
+  (let [[wh hh] (map #(/ % 2.0) [w h])]
+    (el/g
+     #_(-> (el/rect w h)
+         (tf/translate [wh hh])
+         (tf/style {:fill "none"}))
+     (-> (p/arc [wh h] [(* 1.275 wh) (* 1.275 hh)] [w hh])
+         (map (range 0.00001 1 0.01))
+         path/polyline
+         (tf/style base-style)
+         (tf/style {:fill "none"}))
+     (-> (p/arc [0 hh] [(* 0.725 wh) (* 0.725 hh)] [wh 0])
+         (map (range 0.00001 1 0.01))
+         path/polyline
+         (tf/style base-style)
+         (tf/style {:fill "none"})))))
+
+(defn funtile
+  [w h]
+  (let [[wh hh] (map #(/ % 2.0) [w h])
+        r (* 0.125 (min w h))]
+    (el/g
+     (-> (el/rect w h)
+         (tf/translate [wh hh])
+         (tf/style {:fill "none"}))
+     (-> (el/line [wh (+ r hh)] [wh h])
+         (tf/style base-style))
+     (-> (el/line [(+ wh r) hh] [w hh])
+         (tf/style base-style))
+     (-> (el/circle r)
+         (tf/translate [wh hh])
+         (tf/style base-style)))))
+
+(defn funtile2
+  [w h]
+  (let [p 0.3
+        [wh hh] (map #(/ % 2.0) [w h])
+        [wq hq] (map #(* % 0.375 p) [w h])
+        r (* 0.0875 (min w h))
+        gl (p/line [0 0] [w h])
+        apt (gl p)
+        bpt (gl (- 1 p))]
+    (el/g
+     (-> (el/rect w h)
+         (tf/translate [wh hh])
+         (tf/style {:fill "none"}))
+     
+     (-> (el/circle r)
+         (tf/translate apt)
+         (tf/style base-style))
+     (-> (el/polyline [[0 hh] [wq hh] apt])
+         (tf/style base-style))
+     (-> (el/polyline [[wh 0] [wh hq] apt])
+         (tf/style base-style))
+     
+     (-> (el/circle r)
+         (tf/translate bpt)
+         (tf/style base-style))
+     (-> (el/polyline [[w hh] [(- w wq) hh] bpt])
+         (tf/style base-style))
+     (-> (el/polyline [[wh h] [wh (- h hq)] bpt])
+         (tf/style base-style)))))
+
+(defn truchet-grid
+  [tileset nx ny cellw cellh]
+  (let [grid (map reverse (p/rect-grid ny nx cellh cellw))
+        tiles (map #(% cellw cellh) tileset)]
+    (-> (repeatedly #(first (shuffle tiles)))
+        (lo/distribute-on-pts grid))))
+
+(defn rotate-around
+  [tile deg pin]
+  (let [octr (tf/centroid tile)
+        nctr (utils/rotate-pt-around-center octr deg pin)]
+    (-> tile
+        ;; move shape's centroid to 0 0
+        (tf/translate (utils/v* [-1 -1] octr))
+        (tf/rotate deg)
+        ;; move shape to final position
+        (tf/translate nctr))))
+
+(defn bb-rotate
+  [tile deg]
+  (let [bctr (utils/centroid-of-pts (tf/bounds tile))
+        ctr (tf/centroid tile)
+        nctr (utils/rotate-pt-around-center ctr deg bctr)]
+    (-> tile
+        #_(tf/translate (utils/v* [-1 -1] ctr))
+        (tf/translate (utils/v- nctr ctr))
+        (tf/rotate deg))))
+
+(defn make-rect-tileset
+  [tilefn]
+  (let [f (fn [deg w h]
+            (let [[w h] (if (#{0 180} deg) [w h] [h w])
+                  bctr (utils/centroid-of-pts (tf/bounds (tilefn w h)))]
+              (-> (tilefn w h)
+                  (tf/translate (utils/v* [-1 -1] bctr))
+                  (tf/rotate deg))))]
+    (map #(partial f %) [0 90 180 270])))
+
+(def a
+  (let [cells (-> (concat
+                   (make-rect-tileset quarter-circle-tile)
+                   (make-rect-tileset funtile)
+                   (make-rect-tileset funtile2)
+                   #_(make-rect-tileset line-tile))
+                  (truchet-grid 24 24 32 32)
+                  (->> (drop 2)))]
+    cells))

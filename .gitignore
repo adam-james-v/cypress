@@ -17,3 +17,6 @@ pom.xml.asc
 _tmp.svg
 *.txt
 *.png
+*.webm
+*.gif
+*.mp4
