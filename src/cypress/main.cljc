@@ -1052,12 +1052,6 @@
   [t]
   (/ (- (Math/cos (* Math/PI t)) 1) -2))
 
-(defn ease-in-out-cubic
-  [t]
-  (if (< t 0.5)
-    (* 4 t t t)
-    (- 1 (/ (Math/pow (* -2 (+ t 2)) 3) 2))))
-
 (defn blend-pillar
   []
   (let [r 70
@@ -1087,26 +1081,26 @@
   []
   (let [r 70
         s (-> (p/circle 2) (p/rotate 180))
-        a1 (-> (blob 100 100 7) (p/translate (first (random-pts (- r) r 1))))
-        b1 (-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
-        c1 (-> (blob 80 80 3) (p/translate (first (random-pts (- r) r 1))))
-        d1 (-> (blob 100 100 3) (p/translate (first (random-pts (- r) r 1))))
-        e1 (-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
-        f1 (-> (blob 60 60 5) (p/translate (first (random-pts (- r) r 1))))
-        a2 (-> (blob 100 100 7) (p/translate (first (random-pts (- r) r 1))))
-        b2 (-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
-        c2 (-> (blob 80 80 3) (p/translate (first (random-pts (- r) r 1))))
-        d2 (-> (blob 100 100 3) (p/translate (first (random-pts (- r) r 1))))
-        e2 (-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
-        f2 (-> (blob 60 60 5) (p/translate (first (random-pts (- r) r 1))))
-        af #(multiblend [a1 a2 a1] ease-in-out-sin %)
-        bf #(multiblend [b1 b2 b1] ease-in-out-sin %)
-        cf #(multiblend [c1 c2 c1] ease-in-out-sin %)
-        df #(multiblend [d1 d2 d1] ease-in-out-sin %)
-        ef #(multiblend [e1 e2 e1] ease-in-out-sin %)
-        ff #(multiblend [f1 f2 f1] ease-in-out-sin %)
-        z 4
-        n 100
+        a1 #(-> (blob 100 100 7) (p/translate (first (random-pts (- r) r 1))))
+        b1 #(-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
+        c1 #(-> (blob 80 80 3) (p/translate (first (random-pts (- r) r 1))))
+        d1 #(-> (blob 100 100 3) (p/translate (first (random-pts (- r) r 1))))
+        e1 #(-> (blob 120 120 0.3) (p/translate (first (random-pts (- r) r 1))))
+        f1 #(-> (blob 60 60 5) (p/translate (first (random-pts (- r) r 1))))
+        aa (repeatedly 5 a1)
+        bb (repeatedly 3 b1)
+        cc (repeatedly 7 c1)
+        dd (repeatedly 9 d1)
+        ee (repeatedly 4 e1)
+        ff (repeatedly 3 f1)
+        af #(multiblend (concat aa [(first aa)]) ease-in-out-sin %)
+        bf #(multiblend (concat bb [(first bb)]) ease-in-out-sin %)
+        cf #(multiblend (concat cc [(first cc)]) ease-in-out-sin %)
+        df #(multiblend (concat dd [(first dd)]) ease-in-out-sin %)
+        ef #(multiblend (concat ee [(first ee)]) ease-in-out-sin %)
+        ff #(multiblend (concat ff [(first ff)]) ease-in-out-sin %)
+        z 3
+        n 170
         animfn (fn [t]
                  #(multiblend
                   [s (af t) (bf t) (cf t) (df t) (ef t) (ff t) s]
@@ -1145,9 +1139,11 @@
 
 (def blend-pillar-anim
   {:name "blend-pillar"
-   :framerate 24
-   :duration 1
+   :framerate 48
+   :duration 15
    :graphics-fn pillar-anim})
+
+#_(animate! blend-pillar-anim)
 
 (def cell-size 12)
 (def base-style {:fill "none"

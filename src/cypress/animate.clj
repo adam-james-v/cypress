@@ -24,7 +24,7 @@
             "-pix_fmt" "yuva420p" "-b:v" "800k"
             "-y" (str name ".webm"))]
     (when (= 0 (:exit ffmpeg))
-      (sh "rm" "-rf" name))))
+      #_(sh "rm" "-rf" name))))
 
 (defn animate! [{:keys [graphics-fn name framerate duration]}]
   (do (anim-frames! graphics-fn name framerate duration)
