@@ -12,8 +12,8 @@
 #+begin_src clojure :tangle ./deps.edn
 {:deps 
  {org.clojure/clojure {:mvn/version "1.10.3"}
-  svg-clj/svg-clj {:local/root "/Users/adam/dev/svg-clj"}
-  #_#_io.github.adam-james-v/svg-clj {:mvn/version "0.0.3-SNAPSHOT"}
+  #_#_svg-clj/svg-clj {:local/root "/Users/adam/dev/svg-clj"}
+  io.github.adam-james-v/svg-clj {:mvn/version "0.0.4"}
   
   reagent/reagent              {:mvn/version "1.1.0"}
   borkdude/sci                 {:mvn/version "0.2.7"}
